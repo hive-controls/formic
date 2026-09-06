@@ -1,6 +1,6 @@
 {
   "name": "@hive-controls/formic",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Capture → compile → replay → heal → evidence: a computer-use agent harness that plugs into any browser substrate.",
   "license": "MIT",
   "repository": {
@@ -44,7 +44,7 @@
     "build": "tsc -p tsconfig.build.json",
     "prepack": "npm run build",
     "prepare": "npm run build",
-    "test": "node --import tsx --test \"src/**/*.test.mts\" \"probes/**/*.test.mts\"",
+    "test": "node --import tsx --test --test-timeout=120000 \"src/**/*.test.mts\" \"probes/**/*.test.mts\"",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "e2e-doctor": "node dist/cli/e2e-doctor.mjs",
