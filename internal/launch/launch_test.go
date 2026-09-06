@@ -522,6 +522,61 @@ func TestExecutableLookupNeverFallsBackToTheAmbientPath(t *testing.T) {
 	}
 }
 
+// TestPrepareScopesEnvironmentToDeclaredKeysAndPathWhenTheManifestDeclaresEnv is toolspec
+// v1.1's launch-time contract (§ hivedeck consumes toolspec v1.1): a manifest that declares
+// `env[]` gets exactly those keys, plus PATH — never the ambient variable it did not declare.
+func TestPrepareScopesEnvironmentToDeclaredKeysAndPathWhenTheManifestDeclaresEnv(t *testing.T) {
+	toolDirectory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(toolDirectory, "tool"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tool := discovery.Tool{Name: "fixture", Manifest: toolspec.ToolManifest{
+		Launch: toolspec.ToolManifestLaunch{Command: "tool"},
+		Env:    []toolspec.ToolManifestEnvElem{{Name: "DECLARED_VAR"}},
+	}}
+	prepared, err := Prepare(Request{
+		Tool: tool, RepositoryRoot: "/repo",
+		Store: runs.Store{StateDirectory: t.TempDir()},
+		Environment: []string{
+			"PATH=" + toolDirectory, "DECLARED_VAR=keep-me", "UNDECLARED_VAR=must-not-leak",
+		},
+		StartedAt: time.Unix(100, 0),
+	}, profile.ModeForeground)
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment := strings.Join(prepared.Command.Env, "\n")
+	if !strings.Contains(environment, "DECLARED_VAR=keep-me") {
+		t.Fatalf("command environment = %v, want the declared key kept", prepared.Command.Env)
+	}
+	if !strings.Contains(environment, "PATH="+toolDirectory) {
+		t.Fatalf("command environment = %v, want PATH kept (buildCommand's own executable lookup requires it)", prepared.Command.Env)
+	}
+	if strings.Contains(environment, "UNDECLARED_VAR") {
+		t.Fatalf("command environment = %v, want the undeclared ambient key scoped out", prepared.Command.Env)
+	}
+}
+
+// TestPrepareRefusesLaunchWhenARequiredDeclaredEnvKeyHasNoValue is the other half of the same
+// contract: a `required` declared key that never resolves to a value must refuse the launch
+// with a clear, named message, rather than starting the child and letting it fail on its own.
+func TestPrepareRefusesLaunchWhenARequiredDeclaredEnvKeyHasNoValue(t *testing.T) {
+	tool := discovery.Tool{Name: "fixture", Manifest: toolspec.ToolManifest{
+		Launch: toolspec.ToolManifestLaunch{Command: "/bin/true"},
+		Env:    []toolspec.ToolManifestEnvElem{{Name: "REQUIRED_VAR", Required: true}},
+	}}
+	_, err := Prepare(Request{
+		Tool: tool, RepositoryRoot: "/repo", Store: runs.Store{StateDirectory: t.TempDir()},
+		Environment: []string{"PATH=/usr/bin:/bin"}, StartedAt: time.Unix(100, 0),
+	}, profile.ModeForeground)
+	if err == nil {
+		t.Fatal("Prepare should refuse to launch when a required declared env key has no value")
+	}
+	if !strings.Contains(err.Error(), "REQUIRED_VAR") {
+		t.Fatalf("error = %v, want it to name the missing required key", err)
+	}
+}
+
 func TestPrepareUsesProfileSpecArgumentsAndEnvironment(t *testing.T) {
 	toolDirectory := t.TempDir()
 	if err := os.WriteFile(filepath.Join(toolDirectory, "tool"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {

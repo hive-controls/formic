@@ -88,6 +88,23 @@ var expectedInvalid = map[string]invalidExpectation{
 			}
 		},
 	},
+	// manifest.md: "an env[0].name that doesn't match ^[A-Z][A-Z0-9_]*$. Expected ajv
+	// error: instancePath /env/0/name, must match pattern \"^[A-Z][A-Z0-9_]*$\"."
+	"bad-env-name.json": {
+		instanceLocation: []string{"env", "0", "name"},
+		keyword:          "pattern",
+		unmarshalRejects: true,
+		verifyKind: func(t *testing.T, errorKind jsonschema.ErrorKind) {
+			t.Helper()
+			patternErr, ok := errorKind.(*kind.Pattern)
+			if !ok {
+				t.Fatalf("expected *kind.Pattern, got %T", errorKind)
+			}
+			if patternErr.Got != "not-a-valid-name" {
+				t.Fatalf("expected got=not-a-valid-name; got %q", patternErr.Got)
+			}
+		},
+	},
 }
 
 // validFixtureChecks records, per valid/*.json fixture, the specific claim
@@ -145,6 +162,28 @@ var validFixtureChecks = map[string]func(t *testing.T, manifest toolspec.ToolMan
 		t.Helper()
 		if manifest.Pane == nil || manifest.Pane.Interactive == nil || !*manifest.Pane.Interactive {
 			t.Fatalf("interactive-tool.json should set pane.interactive: true; got %+v", manifest.Pane)
+		}
+	},
+	// manifest.md: "a v1.1 manifest exercising the three additive top-level fields:
+	// env (a required secret and an optional one with a default), outputs.evidenceDir
+	// naming the env entry that carries the evidence directory, and exit mapping codes
+	// to meanings."
+	"env-outputs-exit.json": func(t *testing.T, manifest toolspec.ToolManifest) {
+		t.Helper()
+		if len(manifest.Env) != 2 {
+			t.Fatalf("env-outputs-exit.json should declare 2 env entries; got %d", len(manifest.Env))
+		}
+		if manifest.Env[0].Name != "RECIPE_API_KEY" || !manifest.Env[0].Secret || !manifest.Env[0].Required {
+			t.Errorf("env-outputs-exit.json's first env entry should be a required secret named RECIPE_API_KEY; got %+v", manifest.Env[0])
+		}
+		if manifest.Env[1].Default == nil || *manifest.Env[1].Default != "evidence" {
+			t.Errorf("env-outputs-exit.json's second env entry should default to \"evidence\"; got %+v", manifest.Env[1])
+		}
+		if manifest.Outputs == nil || manifest.Outputs.EvidenceDir == nil || *manifest.Outputs.EvidenceDir != "RECIPE_EVIDENCE_DIR" {
+			t.Errorf("env-outputs-exit.json should set outputs.evidenceDir to RECIPE_EVIDENCE_DIR; got %+v", manifest.Outputs)
+		}
+		if len(manifest.Exit) != 3 {
+			t.Errorf("env-outputs-exit.json should declare 3 exit codes; got %d", len(manifest.Exit))
 		}
 	},
 }

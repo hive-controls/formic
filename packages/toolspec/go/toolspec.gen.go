@@ -17,6 +17,14 @@ type ToolManifest struct {
 	// One-line description of what the tool does.
 	Description *string `json:"description,omitempty,omitzero" yaml:"description,omitempty" mapstructure:"description,omitempty"`
 
+	// Environment variables this tool reads, so a launcher knows which keys to set
+	// and which are secrets, without guessing from source.
+	Env []ToolManifestEnvElem `json:"env,omitempty,omitzero" yaml:"env,omitempty" mapstructure:"env,omitempty"`
+
+	// This tool's exit codes and what each one means, keyed by the code as a decimal
+	// string.
+	Exit ToolManifestExit `json:"exit,omitempty,omitzero" yaml:"exit,omitempty" mapstructure:"exit,omitempty"`
+
 	// How the launcher checks the tool is installed/runnable before offering it.
 	Health *ToolManifestHealth `json:"health,omitempty,omitzero" yaml:"health,omitempty" mapstructure:"health,omitempty"`
 
@@ -25,6 +33,9 @@ type ToolManifest struct {
 
 	// Stable machine-readable tool identifier, unique per discovery source.
 	Name string `json:"name" yaml:"name" mapstructure:"name"`
+
+	// Where this tool's produced artifacts land.
+	Outputs *ToolManifestOutputs `json:"outputs,omitempty,omitzero" yaml:"outputs,omitempty" mapstructure:"outputs,omitempty"`
 
 	// How the launcher should host this tool's terminal output.
 	Pane *ToolManifestPane `json:"pane,omitempty,omitzero" yaml:"pane,omitempty" mapstructure:"pane,omitempty"`
@@ -63,6 +74,55 @@ func (j *ToolManifestConfig) UnmarshalJSON(value []byte) error {
 	*j = ToolManifestConfig(plain)
 	return nil
 }
+
+type ToolManifestEnvElem struct {
+	// The value the tool falls back to when this variable is unset.
+	Default *string `json:"default,omitempty,omitzero" yaml:"default,omitempty" mapstructure:"default,omitempty"`
+
+	// What this variable controls and why a launcher user would set it.
+	Description *string `json:"description,omitempty,omitzero" yaml:"description,omitempty" mapstructure:"description,omitempty"`
+
+	// The environment variable name.
+	Name string `json:"name" yaml:"name" mapstructure:"name"`
+
+	// true = the tool cannot run without this variable resolving to a value.
+	Required bool `json:"required,omitempty,omitzero" yaml:"required,omitempty" mapstructure:"required,omitempty"`
+
+	// true = a launcher must treat the value as a secret (never logged, never shown
+	// in plain UI).
+	Secret bool `json:"secret,omitempty,omitzero" yaml:"secret,omitempty" mapstructure:"secret,omitempty"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *ToolManifestEnvElem) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["name"]; raw != nil && !ok {
+		return fmt.Errorf("field name in ToolManifestEnvElem: required")
+	}
+	type Plain ToolManifestEnvElem
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	if matched, _ := regexp.MatchString(`^[A-Z][A-Z0-9_]*$`, string(plain.Name)); !matched {
+		return fmt.Errorf("field %s pattern match: must match %s", "Name", `^[A-Z][A-Z0-9_]*$`)
+	}
+	if v, ok := raw["required"]; !ok || v == nil {
+		plain.Required = false
+	}
+	if v, ok := raw["secret"]; !ok || v == nil {
+		plain.Secret = false
+	}
+	*j = ToolManifestEnvElem(plain)
+	return nil
+}
+
+// This tool's exit codes and what each one means, keyed by the code as a decimal
+// string.
+type ToolManifestExit map[string]interface{}
 
 // How the launcher checks the tool is installed/runnable before offering it.
 type ToolManifestHealth struct {
@@ -123,6 +183,27 @@ func (j *ToolManifestLaunch) UnmarshalJSON(value []byte) error {
 		return fmt.Errorf("field %s length: must be >= %d", "command", 1)
 	}
 	*j = ToolManifestLaunch(plain)
+	return nil
+}
+
+// Where this tool's produced artifacts land.
+type ToolManifestOutputs struct {
+	// The name of an `env` entry above whose resolved value is the directory this
+	// tool writes its evidence into.
+	EvidenceDir *string `json:"evidenceDir,omitempty,omitzero" yaml:"evidenceDir,omitempty" mapstructure:"evidenceDir,omitempty"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *ToolManifestOutputs) UnmarshalJSON(value []byte) error {
+	type Plain ToolManifestOutputs
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	if plain.EvidenceDir != nil && utf8.RuneCountInString(string(*plain.EvidenceDir)) < 1 {
+		return fmt.Errorf("field %s length: must be >= %d", "evidenceDir", 1)
+	}
+	*j = ToolManifestOutputs(plain)
 	return nil
 }
 

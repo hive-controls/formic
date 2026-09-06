@@ -3,6 +3,7 @@ package ui
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -95,9 +96,9 @@ func (model Model) runListView() string {
 	// title, blank, rows, hint, blank, notice, help.
 	capacity := listCapacity(model.layoutHeight(), 6+noticeRows(model.notice))
 	start, end := visibleWindow(model.runCursor, len(model.runRows), capacity)
-	columns := runColumnWidths(model.runRows[start:end])
+	columns := model.runColumnWidths(model.runRows[start:end])
 	for index := start; index < end; index++ {
-		line := runRow(model.runRows[index], columns, width-2, index == model.runCursor)
+		line := model.runRow(model.runRows[index], columns, width-2, index == model.runCursor)
 		if index == model.runCursor {
 			line = selectedStyle.Render("> " + line)
 		} else {
@@ -126,23 +127,49 @@ type runColumns struct {
 
 const startedColumnWidth = len("2006-01-02 15:04:05")
 
-func runColumnWidths(rows []runs.Row) runColumns {
+func (model Model) runColumnWidths(rows []runs.Row) runColumns {
 	columns := runColumns{}
 	for _, row := range rows {
 		columns.id = max(columns.id, lipgloss.Width(row.ID))
 		columns.tool = max(columns.tool, lipgloss.Width(row.Tool))
 		columns.mode = max(columns.mode, lipgloss.Width(string(row.Mode)))
-		columns.exit = max(columns.exit, lipgloss.Width(runExitCode(row)))
+		columns.exit = max(columns.exit, lipgloss.Width(model.runExitCode(row)))
 		columns.outcome = max(columns.outcome, lipgloss.Width(row.Outcome))
 	}
 	return columns
 }
 
-func runExitCode(row runs.Row) string {
+// runExitCode renders the code alone, or — when the row's tool declares an `exit` table for
+// that code (toolspec v1.1) — the code with its declared meaning right beside it, so a person
+// scanning the run list never has to go read the manifest to know what a code means.
+func (model Model) runExitCode(row runs.Row) string {
 	if row.ExitCode == nil {
 		return "exit=—"
 	}
-	return fmt.Sprintf("exit=%d", *row.ExitCode)
+	code := fmt.Sprintf("exit=%d", *row.ExitCode)
+	if meaning := model.exitMeaning(row); meaning != "" {
+		code += " (" + meaning + ")"
+	}
+	return code
+}
+
+func (model Model) exitMeaning(row runs.Row) string {
+	if row.ExitCode == nil {
+		return ""
+	}
+	tool, ok := model.toolByName(row.Tool)
+	if !ok || tool.Manifest.Exit == nil {
+		return ""
+	}
+	meaning, ok := tool.Manifest.Exit[strconv.Itoa(*row.ExitCode)]
+	if !ok {
+		return ""
+	}
+	text, ok := meaning.(string)
+	if !ok {
+		return ""
+	}
+	return text
 }
 
 // outcomeStyle colours the one field a person scans this list for. "failed" is the reason the
@@ -171,21 +198,47 @@ func cellStyler(rowIsStyled bool) func(lipgloss.Style, string) string {
 	return func(style lipgloss.Style, text string) string { return style.Render(text) }
 }
 
-func runRow(row runs.Row, columns runColumns, width int, selected bool) string {
-	artifact := row.Artifact
+func (model Model) runRow(row runs.Row, columns runColumns, width int, selected bool) string {
+	artifact := model.runArtifact(row)
 	if artifact == "" {
 		artifact = "—"
 	}
 	cell := cellStyler(selected)
+	exitCode := model.runExitCode(row)
 	spent := columns.id + columns.tool + columns.mode + startedColumnWidth +
 		columns.exit + columns.outcome + 12
 	return cell(mutedStyle, pad(row.ID, columns.id)) + "  " +
 		pad(row.Tool, columns.tool) + "  " +
 		cell(mutedStyle, pad(string(row.Mode), columns.mode)) + "  " +
 		cell(mutedStyle, row.StartedAt.Local().Format("2006-01-02 15:04:05")) + "  " +
-		cell(mutedStyle, pad(runExitCode(row), columns.exit)) + "  " +
+		cell(mutedStyle, pad(exitCode, columns.exit)) + "  " +
 		cell(outcomeStyle(row.Outcome), pad(row.Outcome, columns.outcome)) + "  " +
 		truncatePath(artifact, width-spent)
+}
+
+// runArtifact is what the run list shows AND what the existing "enter" open affordance
+// (openSelectedArtifact) opens: the artifact the run's own status stream reported, or — when
+// nothing was reported and the manifest declares `outputs.evidenceDir` (toolspec v1.1) — the
+// resolved evidence directory read back out of the run's own persisted environment.
+func (model Model) runArtifact(row runs.Row) string {
+	if row.Artifact != "" {
+		return row.Artifact
+	}
+	tool, ok := model.toolByName(row.Tool)
+	if !ok || tool.Manifest.Outputs == nil || tool.Manifest.Outputs.EvidenceDir == nil {
+		return ""
+	}
+	return environmentValue(row.Env, *tool.Manifest.Outputs.EvidenceDir)
+}
+
+func environmentValue(environment []string, name string) string {
+	prefix := name + "="
+	for _, entry := range environment {
+		if value, found := strings.CutPrefix(entry, prefix); found {
+			return value
+		}
+	}
+	return ""
 }
 
 func (model Model) listView() string {
@@ -311,11 +364,42 @@ func (model Model) configureView() string {
 		content.WriteString(model.configureArgs.View() + "\n")
 		content.WriteString(mutedStyle.Render(truncate("Comma-separated argv · enter continue · esc cancel", width)) + "\n")
 	} else {
+		content.WriteString(configureEnvDescription(model, width))
 		content.WriteString(model.configureEnv.View() + "\n")
-		content.WriteString(mutedStyle.Render(truncate("Use env.NAME for secret values · enter save · esc cancel", width)) + "\n")
+		content.WriteString(mutedStyle.Render(truncate(configureEnvHint(model), width)) + "\n")
 	}
 	appendNotice(&content, model.notice, width)
 	return content.String()
+}
+
+// configureEnvDescription shows the current declared env[] row's description, if it has one —
+// blank for the free-text form (no declared entries to describe).
+func configureEnvDescription(model Model, width int) string {
+	if len(model.configureEnvEntries) == 0 {
+		return ""
+	}
+	entry := model.configureEnvEntries[model.configureEnvIndex]
+	if entry.Description == nil || *entry.Description == "" {
+		return ""
+	}
+	return mutedStyle.Render(wrap(*entry.Description, width)) + "\n"
+}
+
+func configureEnvHint(model Model) string {
+	if len(model.configureEnvEntries) == 0 {
+		return "Use env.NAME for secret values · enter save · esc cancel"
+	}
+	more := model.configureEnvIndex+1 < len(model.configureEnvEntries)
+	if model.configureEnvEntries[model.configureEnvIndex].Secret {
+		if more {
+			return "Name of the environment variable that holds this secret · enter next · esc cancel"
+		}
+		return "Name of the environment variable that holds this secret · enter save · esc cancel"
+	}
+	if more {
+		return "enter next · esc cancel"
+	}
+	return "enter save · esc cancel"
 }
 
 // modeChooser shows every launch mode, not just the current one. "←/→ choose" over a single

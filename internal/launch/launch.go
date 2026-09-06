@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	toolspec "github.com/hive-controls/toolspec"
+
 	"github.com/hive-controls/hivedeck/internal/discovery"
 	"github.com/hive-controls/hivedeck/internal/manifest"
 	"github.com/hive-controls/hivedeck/internal/profile"
@@ -79,7 +81,7 @@ func Prepare(request Request, mode profile.LaunchMode) (Prepared, error) {
 	// (wrong for a nested-subdirectory invocation), or the tab-route wrapper's own unrelated
 	// starting directory.
 	resolved.Cwd = absoluteAgainstRepository(request.RepositoryRoot, resolved.Cwd)
-	environment, err := profile.ResolveEnvironment(settings, request.Environment)
+	environment, err := resolveEnvironment(request.Tool.Manifest, settings, request.Environment)
 	if err != nil {
 		return Prepared{}, err
 	}
@@ -109,6 +111,48 @@ func absoluteAgainstRepository(repositoryRoot, cwd string) string {
 		return cwd
 	}
 	return filepath.Join(repositoryRoot, cwd)
+}
+
+// resolveEnvironment applies the profile's env-by-name resolution first (unchanged for every
+// manifest), then — only when the manifest declares `env[]` — scopes the child down to exactly
+// the keys it declared, per §toolspec v1.1. A manifest with no declared env keeps today's full
+// ambient-plus-profile passthrough exactly as before.
+func resolveEnvironment(tool toolspec.ToolManifest, settings profile.Tool, processEnvironment []string) ([]string, error) {
+	resolved, err := profile.ResolveEnvironment(settings, processEnvironment)
+	if err != nil {
+		return nil, err
+	}
+	if len(tool.Env) == 0 {
+		return resolved, nil
+	}
+	return scopeDeclaredEnvironment(tool.Env, resolved)
+}
+
+// scopeDeclaredEnvironment keeps only the manifest's declared keys (plus PATH — never a
+// declared key, but a hard requirement of buildCommand's own executable lookup below, which
+// resolves argv[0] against THIS environment's PATH and never falls back to the ambient one). A
+// `required` key with no resolved value refuses the launch outright, naming every missing key
+// at once, rather than letting the child start and fail confusingly on its own.
+func scopeDeclaredEnvironment(declared []toolspec.ToolManifestEnvElem, resolved []string) ([]string, error) {
+	values := environmentMap(resolved)
+	scoped := make(map[string]string, len(declared)+1)
+	if pathValue, ok := values["PATH"]; ok {
+		scoped["PATH"] = pathValue
+	}
+	var missing []string
+	for _, entry := range declared {
+		if value, ok := values[entry.Name]; ok && value != "" {
+			scoped[entry.Name] = value
+			continue
+		}
+		if entry.Required {
+			missing = append(missing, entry.Name)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("missing required environment: %s", strings.Join(missing, ", "))
+	}
+	return environmentSlice(scoped), nil
 }
 
 // buildCommand resolves argv[0] against environment's own PATH ONLY — never the calling

@@ -15,11 +15,21 @@ import (
 	"github.com/hive-controls/hivedeck/internal/ui"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	os.Exit(run(os.Args[1:]))
 }
 
 func run(arguments []string) int {
+	if len(arguments) == 1 && arguments[0] == "version" {
+		fmt.Printf("hivedeck %s (%s %s)\n", version, commit, date)
+		return 0
+	}
 	if len(arguments) > 0 && arguments[0] == "run" {
 		return runWrapped(arguments[1:])
 	}

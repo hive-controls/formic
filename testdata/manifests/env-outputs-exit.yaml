@@ -1,0 +1,24 @@
+toolspec: 1
+name: fixture-with-declared-env
+title: Fixture With Declared Env
+description: Exercises toolspec v1.1's env, outputs, and exit fields.
+launch:
+  command: fixture-tool
+  cwd: "{repo}"
+env:
+  - name: FIXTURE_TARGET_URL
+    description: "The app under test."
+    required: true
+  - name: FIXTURE_MODE
+    description: "Which mode the fixture runs in."
+    default: replay
+  - name: FIXTURE_API_KEY
+    description: "Bearer for the fixture's backend."
+    secret: true
+  - name: FIXTURE_EVIDENCE_DIR
+    description: "Where the fixture writes its evidence bundle."
+outputs:
+  evidenceDir: FIXTURE_EVIDENCE_DIR
+exit:
+  "0": "passed"
+  "1": "needs-human"

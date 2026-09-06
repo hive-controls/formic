@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parse as parseYaml } from "yaml";
-import { validate } from "./index.mts";
+import { validate } from "../src/index.mts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..", "..");
@@ -13,7 +13,7 @@ const REPO_ROOT = join(HERE, "..", "..", "..");
 // the four product-shaped dev probes (packages/harness/probes/) that the launcher's
 // built-in adapter surfaces on the same footing as any third-party tool.
 const PRODUCT_MANIFEST_PATHS = [
-  "../../harness/src/cli/e2e-doctor.toolspec.yaml",
+  "../../../recipes/e2e-doctor/e2e-doctor.toolspec.yaml",
   "../../harness/probes/cleanup-sandboxes.toolspec.yaml",
   "../../harness/probes/gate-browserstack.toolspec.yaml",
   "../../harness/probes/gate-saucelabs.toolspec.yaml",

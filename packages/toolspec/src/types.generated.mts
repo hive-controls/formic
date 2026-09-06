@@ -91,4 +91,48 @@ export interface ToolManifest {
      */
     interactive?: boolean;
   };
+  /**
+   * Environment variables this tool reads, so a launcher knows which keys to set and which are secrets, without guessing from source.
+   */
+  env?: {
+    /**
+     * The environment variable name.
+     */
+    name: string;
+    /**
+     * What this variable controls and why a launcher user would set it.
+     */
+    description?: string;
+    /**
+     * true = a launcher must treat the value as a secret (never logged, never shown in plain UI).
+     */
+    secret?: boolean;
+    /**
+     * true = the tool cannot run without this variable resolving to a value.
+     */
+    required?: boolean;
+    /**
+     * The value the tool falls back to when this variable is unset.
+     */
+    default?: string;
+  }[];
+  /**
+   * Where this tool's produced artifacts land.
+   */
+  outputs?: {
+    /**
+     * The name of an `env` entry above whose resolved value is the directory this tool writes its evidence into.
+     */
+    evidenceDir?: string;
+  };
+  /**
+   * This tool's exit codes and what each one means, keyed by the code as a decimal string.
+   */
+  exit?: {
+    /**
+     * This interface was referenced by `undefined`'s JSON-Schema definition
+     * via the `patternProperty` "^[0-9]+$".
+     */
+    [k: string]: string;
+  };
 }

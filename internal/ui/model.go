@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	toolspec "github.com/hive-controls/toolspec"
 
 	"github.com/hive-controls/hivedeck/internal/discovery"
 	"github.com/hive-controls/hivedeck/internal/manifest"
@@ -35,24 +36,30 @@ type Model struct {
 	configureMode     profile.LaunchMode
 	configureArgs     textinput.Model
 	configureEnv      textinput.Model
-	notice            string
-	runStore          runs.Store
-	runRows           []runs.Row
-	runCursor         int
-	showRuns          bool
-	promptingSpec     bool
-	panes             []*pane.Pane
-	paneFocus         int
-	showPanes         bool
-	runMonitors       map[string]*runs.Monitor
-	ticking           bool
-	paneTicker        func(time.Duration) tea.Cmd
-	specInput         textinput.Model
-	pendingTool       discovery.Tool
-	environment       []string
-	executable        string
-	clock             func() time.Time
-	goos              string
+	// configureEnvEntries drives a one-row-per-declared-key env form when the manifest declares
+	// toolspec v1.1's `env[]`; empty for a manifest that does not, which keeps the free-text
+	// configureEnv field above exactly as it worked before v1.1.
+	configureEnvEntries []toolspec.ToolManifestEnvElem
+	configureEnvIndex   int
+	configureEnvValues  map[string]string
+	notice              string
+	runStore            runs.Store
+	runRows             []runs.Row
+	runCursor           int
+	showRuns            bool
+	promptingSpec       bool
+	panes               []*pane.Pane
+	paneFocus           int
+	showPanes           bool
+	runMonitors         map[string]*runs.Monitor
+	ticking             bool
+	paneTicker          func(time.Duration) tea.Cmd
+	specInput           textinput.Model
+	pendingTool         discovery.Tool
+	environment         []string
+	executable          string
+	clock               func() time.Time
+	goos                string
 }
 
 func New(catalog discovery.Catalog, repositoryRoot string) Model {
@@ -198,12 +205,71 @@ func (model Model) beginConfigure() (tea.Model, tea.Cmd) {
 	model.configureArgs.Prompt = "Arguments: "
 	model.configureArgs.Placeholder = "--flag, value"
 	model.configureArgs.SetValue(strings.Join(model.repositoryProfile.Tools[tool.Name].Args, ", "))
-	model.configureEnv = textinput.New()
-	model.configureEnv.Prompt = "Environment: "
-	model.configureEnv.Placeholder = "NAME=value, SECRET=env.SOURCE"
-	model.configureEnv.SetValue(formatEnvironment(model.repositoryProfile.Tools[tool.Name].Env))
+	model.configureEnvEntries = tool.Manifest.Env
+	model.configureEnvValues = make(map[string]string)
+	existingEnv := model.repositoryProfile.Tools[tool.Name].Env
+	if len(model.configureEnvEntries) > 0 {
+		model.configureEnvIndex = 0
+		model.configureEnv = envRowInput(model.configureEnvEntries[0], existingEnv)
+	} else {
+		model.configureEnv = textinput.New()
+		model.configureEnv.Prompt = "Environment: "
+		model.configureEnv.Placeholder = "NAME=value, SECRET=env.SOURCE"
+		model.configureEnv.SetValue(formatEnvironment(existingEnv))
+	}
 	model.notice = ""
 	return model, nil
+}
+
+// envRowInput builds the input for one declared env[] entry (toolspec v1.1): a secret entry is
+// masked and never asks for the secret's value at all — only the name of the process
+// environment variable it should be read from at launch, per the existing env.NAME reference
+// convention profile.ResolveEnvironment already resolves against. A non-secret entry is
+// prefilled from the tool's existing saved value, falling back to the manifest's declared
+// `default`.
+func envRowInput(entry toolspec.ToolManifestEnvElem, existingEnv map[string]string) textinput.Model {
+	input := textinput.New()
+	input.Prompt = envRowPrompt(entry)
+	if entry.Secret {
+		input.EchoMode = textinput.EchoPassword
+		input.SetValue(secretSourceName(entry, existingEnv))
+	} else {
+		input.SetValue(envRowValue(entry, existingEnv))
+	}
+	input.Focus()
+	return input
+}
+
+func envRowPrompt(entry toolspec.ToolManifestEnvElem) string {
+	if entry.Required {
+		return entry.Name + " (required): "
+	}
+	return entry.Name + ": "
+}
+
+func envRowValue(entry toolspec.ToolManifestEnvElem, existingEnv map[string]string) string {
+	if value, ok := existingEnv[entry.Name]; ok {
+		return value
+	}
+	if entry.Default != nil {
+		return *entry.Default
+	}
+	return ""
+}
+
+// secretSourceName never returns the secret's actual value — only the name of the environment
+// variable a previously saved `env.NAME` reference already points at, so reopening the form
+// does not lose a prior choice. A row with no prior choice starts BLANK, deliberately never
+// guessed at (e.g. from the declared entry's own name): SetValue leaves the cursor at the end
+// of whatever it prefilled, so a guessed name a person types over — rather than clears first —
+// would silently concatenate onto it instead of replacing it.
+func secretSourceName(entry toolspec.ToolManifestEnvElem, existingEnv map[string]string) string {
+	if value, ok := existingEnv[entry.Name]; ok {
+		if source, isReference := strings.CutPrefix(value, "env."); isReference {
+			return source
+		}
+	}
+	return ""
 }
 
 func (model Model) updateConfigureKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -222,6 +288,9 @@ func (model Model) updateConfigureKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return model, nil
 	}
 	if model.configureStep == 2 && key.String() == "enter" {
+		if len(model.configureEnvEntries) > 0 {
+			return model.advanceEnvRow()
+		}
 		return model.saveConfiguration(), nil
 	}
 	if model.configureStep == 1 {
@@ -232,6 +301,42 @@ func (model Model) updateConfigureKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	updated, command := model.configureEnv.Update(key)
 	model.configureEnv = updated
 	return model, command
+}
+
+// advanceEnvRow records the current declared env[] row's typed value, then either moves on to
+// the next declared row or — on the last one — saves, exactly like the free-text form's single
+// Enter-to-save step 2 above.
+func (model Model) advanceEnvRow() (tea.Model, tea.Cmd) {
+	tool, ok := model.currentTool()
+	if !ok {
+		return model, nil
+	}
+	entry := model.configureEnvEntries[model.configureEnvIndex]
+	model.storeEnvRowValue(entry)
+	if model.configureEnvIndex+1 < len(model.configureEnvEntries) {
+		model.configureEnvIndex++
+		nextEntry := model.configureEnvEntries[model.configureEnvIndex]
+		model.configureEnv = envRowInput(nextEntry, model.repositoryProfile.Tools[tool.Name].Env)
+		return model, textinput.Blink
+	}
+	return model.saveConfiguration(), nil
+}
+
+// storeEnvRowValue never writes a secret's typed value verbatim: for a `secret: true` entry the
+// typed text is the SOURCE variable name, and only "env."+that name — the existing
+// env.NAME-reference convention profile.ResolveEnvironment already resolves at launch — is
+// stored. A blank row unsets any previously saved value for that key.
+func (model Model) storeEnvRowValue(entry toolspec.ToolManifestEnvElem) {
+	typed := strings.TrimSpace(model.configureEnv.Value())
+	if typed == "" {
+		delete(model.configureEnvValues, entry.Name)
+		return
+	}
+	if entry.Secret {
+		model.configureEnvValues[entry.Name] = "env." + typed
+		return
+	}
+	model.configureEnvValues[entry.Name] = typed
 }
 
 func (model Model) updateConfigureMode(key tea.KeyMsg) Model {
@@ -252,7 +357,7 @@ func (model Model) saveConfiguration() Model {
 	if !ok {
 		return model
 	}
-	environment, err := parseEnvironment(model.configureEnv.Value())
+	environment, err := model.resolvedConfigureEnvironment()
 	if err != nil {
 		model.notice = err.Error()
 		return model
@@ -275,12 +380,42 @@ func (model Model) saveConfiguration() Model {
 	return model
 }
 
+// resolvedConfigureEnvironment returns what the free-text field parses when the manifest
+// declares no env[] (unchanged), or a defensive copy of the per-row values collected by the
+// declared-env[] form otherwise — never the working map itself, so a later reconfigure session
+// building a fresh map can never alias into a profile already saved from a previous one.
+func (model Model) resolvedConfigureEnvironment() (map[string]string, error) {
+	if len(model.configureEnvEntries) == 0 {
+		return parseEnvironment(model.configureEnv.Value())
+	}
+	if len(model.configureEnvValues) == 0 {
+		return nil, nil
+	}
+	environment := make(map[string]string, len(model.configureEnvValues))
+	for name, value := range model.configureEnvValues {
+		environment[name] = value
+	}
+	return environment, nil
+}
+
 func (model Model) currentTool() (discovery.Tool, bool) {
 	tools := model.visibleTools()
 	if len(tools) == 0 {
 		return discovery.Tool{}, false
 	}
 	return tools[clampCursor(model.cursor, len(tools))], true
+}
+
+// toolByName looks a tool up by its manifest name — the identifier a run row carries — rather
+// than by filter/cursor position, so a run from a tool no longer visible under the current
+// filter can still be resolved against its manifest in the run list.
+func (model Model) toolByName(name string) (discovery.Tool, bool) {
+	for _, tool := range model.catalog.Tools {
+		if tool.Name == name {
+			return tool, true
+		}
+	}
+	return discovery.Tool{}, false
 }
 
 func toolInteractive(tool discovery.Tool) bool {

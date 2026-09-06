@@ -1,0 +1,43 @@
+name: release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # A missing tap token skips the Homebrew publish step (green, no formula);
+      # a wrong token fails goreleaser after assets are already uploaded (red).
+      # Secrets cannot be referenced directly in `if:`, hence the env indirection.
+      - name: Resolve goreleaser skip flags
+        env:
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_GITHUB_TOKEN" ]; then
+            echo "GORELEASER_SKIP=--skip=homebrew" >> "$GITHUB_ENV"
+          else
+            echo "GORELEASER_SKIP=" >> "$GITHUB_ENV"
+          fi
+
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean ${{ env.GORELEASER_SKIP }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}

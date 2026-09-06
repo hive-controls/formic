@@ -1,9 +1,11 @@
 # hivedeck
 
-hivedeck is a terminal launcher and monitor for the tools that live in a repository.
-Discover tools, configure them once, launch them in your terminal or an embedded pane, and
-follow their runs and artifacts from one Go binary built with
-[Bubble Tea](https://github.com/charmbracelet/bubbletea).
+hivedeck is the optional terminal operator UI for any tool that speaks the toolspec
+contract — the same contract [`@hive-controls/formic`](https://www.npmjs.com/package/@hive-controls/formic)
+configures for automation. Discover tools, configure them once (a manifest's declared
+`env[]` keys become a form, not free text — see "Configure and launch" below), launch
+them in your terminal or an embedded pane, and follow their runs and artifacts from one
+Go binary built with [Bubble Tea](https://github.com/charmbracelet/bubbletea).
 
 Repository tools are ordinary YAML manifests that follow the toolspec v1 contract. Projects
 without manifests still work: hivedeck turns root and workspace `package.json` scripts into
@@ -11,7 +13,22 @@ built-in entries automatically. Workspace scripts have names such as `web--build
 lowercased and normalized to letters, digits, and hyphens. Colliding normalized script names
 get deterministic suffixes, and titles preserve the original script keys.
 
-## Install from source
+## Install
+
+### Homebrew
+
+```sh
+brew install hive-controls/tap/hivedeck
+```
+
+### Release binaries
+
+Download an archive from [GitHub Releases](https://github.com/hive-controls/hivedeck/releases)
+and verify it against the release's `checksums.txt`: `darwin_amd64`, `darwin_arm64`,
+`linux_amd64`, `linux_arm64`, and `windows_amd64` (built, not exercised — see the terminal
+matrix below).
+
+### Developer checkout
 
 hivedeck requires Go 1.26.3 or newer to build. From a checkout of
 [hive-controls/hivedeck](https://github.com/hive-controls/hivedeck), install the single binary:
@@ -22,7 +39,9 @@ go install ./cmd/hivedeck
 
 Add Go's binary directory (`GOBIN`, or `$(go env GOPATH)/bin` when unset) to `PATH`.
 To keep the binary in the checkout instead, use `go build -o hivedeck ./cmd/hivedeck`.
-These source-checkout commands use the bundled toolspec module.
+These source-checkout commands use the bundled toolspec module. `go install
+github.com/hive-controls/hivedeck/cmd/hivedeck@<version>` is not supported: go.mod carries a
+`replace` directive to that bundled module, which only resolves from inside a checkout.
 
 Run `hivedeck` from any directory beneath a Git repository root.
 
@@ -39,6 +58,12 @@ repository's committed `.hivedeck/profile.yaml`. It mirrors `formic.profiles.yam
 secret-free, environment-by-name configuration model. Choose the launch mode with the arrow keys,
 then enter optional comma-separated argv and environment settings. The profile is stable,
 hand-editable YAML; comments on settings the form does not change are preserved.
+
+A manifest that declares toolspec v1.1's `env[]` replaces the free-text environment step with
+one row per declared key instead: its description is shown, `required` keys are marked, and a
+`default` is prefilled. A `secret: true` row is masked and never asks for the secret's own
+value — only the name of the environment variable to read it from at launch, stored the same
+`env.NAME`-reference way as a hand-typed secret setting above.
 
 ```yaml
 default:
@@ -153,9 +178,12 @@ exits; a late status line never reopens a finished run. The tab wrapper reads ar
 directory, and environment from the saved run row, inherits stdio, and records the exit code.
 
 Press `r` from the tool list to see runs newest first: run id, tool, mode, start time, exit
-code, outcome, and artifact. Enter on a row with an artifact opens a URL or path with the
-platform handler (`open`, `xdg-open`, or `rundll32 url.dll,FileProtocolHandler`). Runs are one
-JSON file per run beneath the platform state directory:
+code, outcome, and artifact. A finished run whose tool declares toolspec v1.1's `exit` table
+shows that code's meaning beside it; a run that reported no artifact but whose tool declares
+`outputs.evidenceDir` shows the resolved evidence directory instead. Enter on such a row opens
+a URL or path with the platform handler (`open`, `xdg-open`, or
+`rundll32 url.dll,FileProtocolHandler`). Runs are one JSON file per run beneath the platform
+state directory:
 
 - macOS: `~/Library/Application Support/hivedeck/runs`
 - Linux: `$XDG_STATE_HOME/hivedeck/runs`, else `~/.local/state/hivedeck/runs`
@@ -180,10 +208,13 @@ The user config root is `$XDG_CONFIG_HOME` or `~/.config` on Linux, `%APPDATA%` 
 `~/Library/Application Support` on macOS. macOS also accepts an existing
 `~/.config/hivedeck` library first for cross-platform setups.
 
-The [toolspec contract](packages/toolspec/README.md) and
-[JSON Schema](packages/toolspec/schema/toolspec.schema.json) define what a tool declares:
+The [toolspec contract](https://github.com/hive-controls/toolspec) (npm
+[`@hive-controls/toolspec`](https://www.npmjs.com/package/@hive-controls/toolspec)) and its
+JSON Schema define what a tool declares:
 identity and description, launch command/argv/cwd, configuration schema and file names,
-status kind/events, optional health check, and pane preference/interactivity. Configuration
+status kind/events, optional health check, pane preference/interactivity, and — as of
+toolspec v1.1 — the environment variables it reads (`env[]`), where its evidence lands
+(`outputs.evidenceDir`), and what its exit codes mean (`exit`). Configuration
 file names describe inputs; hivedeck does not read their secret values. A minimal manifest:
 
 ```yaml

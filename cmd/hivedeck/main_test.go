@@ -1,14 +1,42 @@
 package main
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/hive-controls/hivedeck/internal/profile"
 	"github.com/hive-controls/hivedeck/internal/runs"
 )
+
+func TestVersionCommandPrintsAndExitsZero(t *testing.T) {
+	originalStdout := os.Stdout
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = writeEnd
+
+	exitCode := run([]string{"version"})
+
+	writeEnd.Close()
+	os.Stdout = originalStdout
+	var captured bytes.Buffer
+	if _, err := io.Copy(&captured, readEnd); err != nil {
+		t.Fatal(err)
+	}
+
+	if exitCode != 0 {
+		t.Fatalf("version command exit = %d, want 0", exitCode)
+	}
+	if !strings.HasPrefix(captured.String(), "hivedeck ") {
+		t.Fatalf("version output = %q, want prefix %q", captured.String(), "hivedeck ")
+	}
+}
 
 func TestRunWrapperCompletesThePersistedRow(t *testing.T) {
 	stateDirectory := t.TempDir()

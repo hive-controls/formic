@@ -97,6 +97,39 @@ func TestSubstituteTokensRejectsAnUnterminatedToken(t *testing.T) {
 	}
 }
 
+// TestLoadFileAcceptsDeclaredEnvOutputsAndExit exercises toolspec v1.1's three additive fields
+// together — env[] (a required key, a defaulted key, and a secret key), outputs.evidenceDir,
+// and exit — proving a v1.1 manifest still loads and validates cleanly end to end.
+func TestLoadFileAcceptsDeclaredEnvOutputsAndExit(t *testing.T) {
+	manifestPath := filepath.Join("..", "..", "testdata", "manifests", "env-outputs-exit.yaml")
+	loaded := LoadFile(manifestPath, t.TempDir())
+	if loaded.Problem != nil {
+		t.Fatalf("v1.1 manifest returned a problem: %v", loaded.Problem)
+	}
+	if len(loaded.Manifest.Env) != 4 {
+		t.Fatalf("declared env entries = %d, want 4", len(loaded.Manifest.Env))
+	}
+	targetURL := loaded.Manifest.Env[0]
+	if targetURL.Name != "FIXTURE_TARGET_URL" || !targetURL.Required {
+		t.Fatalf("first env entry = %+v, want FIXTURE_TARGET_URL required", targetURL)
+	}
+	mode := loaded.Manifest.Env[1]
+	if mode.Default == nil || *mode.Default != "replay" {
+		t.Fatalf("FIXTURE_MODE default = %v, want %q", mode.Default, "replay")
+	}
+	apiKey := loaded.Manifest.Env[2]
+	if !apiKey.Secret {
+		t.Fatalf("FIXTURE_API_KEY entry = %+v, want secret", apiKey)
+	}
+	if loaded.Manifest.Outputs == nil || loaded.Manifest.Outputs.EvidenceDir == nil ||
+		*loaded.Manifest.Outputs.EvidenceDir != "FIXTURE_EVIDENCE_DIR" {
+		t.Fatalf("outputs.evidenceDir = %+v, want FIXTURE_EVIDENCE_DIR", loaded.Manifest.Outputs)
+	}
+	if loaded.Manifest.Exit["0"] != "passed" || loaded.Manifest.Exit["1"] != "needs-human" {
+		t.Fatalf("exit table = %+v, want the declared 0/1 meanings", loaded.Manifest.Exit)
+	}
+}
+
 func TestLoadFileRejectsSchemaViolation(t *testing.T) {
 	manifestPath := filepath.Join("..", "..", "testdata", "manifests", "invalid.yaml")
 	loaded := LoadFile(manifestPath, t.TempDir())

@@ -9,9 +9,10 @@
     "./schema": "./schema/toolspec.schema.json"
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "codegen": "node --import tsx scripts/codegen.mts",
     "check": "node --import tsx scripts/check.mts && node --import tsx scripts/check-go.mts",
-    "test": "node --import tsx --test \"src/**/*.test.mts\" && node --import tsx scripts/test-go.mts"
+    "test": "node --import tsx --test \"src/**/*.test.mts\" \"probes/**/*.test.mts\" && node --import tsx scripts/test-go.mts"
   },
   "dependencies": {
     "ajv": "^8.17.1",

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	toolspec "github.com/hive-controls/toolspec"
 
@@ -186,6 +187,113 @@ func TestConfigureUpdatesModeAndEnvironmentInRepositoryProfile(t *testing.T) {
 	}
 	if written.Tools["checks"].Mode != profile.ModeTab || written.Tools["checks"].Env["FORMIC_GATE"] != "local" {
 		t.Fatalf("saved settings = %+v, want tab and FORMIC_GATE=local", written.Tools["checks"])
+	}
+}
+
+// declaredEnvTool builds a fixture manifest exercising toolspec v1.1's env[]: a required
+// non-secret entry with a default, and a secret entry with none — the two shapes the config
+// form must render and store differently.
+func declaredEnvTool() discovery.Tool {
+	defaultMode := "replay"
+	return discovery.Tool{
+		Name: "checks", Title: "Checks",
+		Manifest: toolspec.ToolManifest{
+			Launch: toolspec.ToolManifestLaunch{Command: "true"},
+			Env: []toolspec.ToolManifestEnvElem{
+				{Name: "FIXTURE_MODE", Description: strPtr("Which mode the fixture runs in."), Required: true, Default: &defaultMode},
+				{Name: "FIXTURE_API_KEY", Description: strPtr("Bearer for the fixture's backend."), Secret: true},
+			},
+		},
+	}
+}
+
+func strPtr(value string) *string { return &value }
+
+// TestConfigureFormIsDrivenByDeclaredEnvEntries is deliverable 1 of the toolspec v1.1 consumer
+// contract: when a manifest declares env[], the env step becomes one row per declared key — the
+// required, non-secret row shows its description and marks itself required, and a secret row
+// never asks for (or stores) the secret's own value, only the process variable name it should
+// be read from at launch.
+func TestConfigureFormIsDrivenByDeclaredEnvEntries(t *testing.T) {
+	repositoryRoot := t.TempDir()
+	catalog := discovery.Catalog{Tools: []discovery.Tool{declaredEnvTool()}}
+	model := New(catalog, repositoryRoot)
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter}) // mode: keep foreground
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter}) // args: leave blank
+
+	view := model.View()
+	if !strings.Contains(view, "FIXTURE_MODE (required)") || !strings.Contains(view, "Which mode the fixture runs in.") {
+		t.Fatalf("configure form does not show the required, described first row:\n%s", view)
+	}
+	if model.configureEnv.Value() != "replay" {
+		t.Fatalf("first row value = %q, want the manifest's declared default %q", model.configureEnv.Value(), "replay")
+	}
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter}) // accept the prefilled default, advance
+
+	secretView := model.View()
+	if model.configureEnv.EchoMode != textinput.EchoPassword {
+		t.Fatal("a secret row must mask its input")
+	}
+	if !strings.Contains(secretView, "FIXTURE_API_KEY") || strings.Contains(secretView, "literal-secret-value") {
+		t.Fatalf("secret row prompt missing or a secret value leaked into the view:\n%s", secretView)
+	}
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("MY_OWN_SECRET_VAR")})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter}) // last row: save
+
+	if model.configuring {
+		t.Fatal("configure form should close after saving the last declared row")
+	}
+	written, err := profile.Load(repositoryRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := written.Tools["checks"]
+	if settings.Env["FIXTURE_MODE"] != "replay" {
+		t.Fatalf("saved FIXTURE_MODE = %q, want the accepted default %q", settings.Env["FIXTURE_MODE"], "replay")
+	}
+	if settings.Env["FIXTURE_API_KEY"] != "env.MY_OWN_SECRET_VAR" {
+		t.Fatalf("saved FIXTURE_API_KEY = %q, want the env.NAME reference, never a literal secret", settings.Env["FIXTURE_API_KEY"])
+	}
+}
+
+// TestConfigureFormPrefillsASecretRowsSourceNameFromAPreviouslySavedReference proves reopening
+// the form never regresses to asking for (or showing) the secret's actual value: only the
+// source variable name embedded in a previously saved env.NAME reference is ever prefilled.
+func TestConfigureFormPrefillsASecretRowsSourceNameFromAPreviouslySavedReference(t *testing.T) {
+	repositoryRoot := t.TempDir()
+	catalog := discovery.Catalog{Tools: []discovery.Tool{declaredEnvTool()}}
+	model := New(catalog, repositoryRoot)
+	model.repositoryProfile.Tools["checks"] = profile.Tool{
+		Env: map[string]string{"FIXTURE_MODE": "replay", "FIXTURE_API_KEY": "env.PREVIOUSLY_CHOSEN_VAR"},
+	}
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter}) // mode
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter}) // args
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter}) // accept row 1, advance to the secret row
+	if model.configureEnv.Value() != "PREVIOUSLY_CHOSEN_VAR" {
+		t.Fatalf("secret row prefill = %q, want the source name from the saved env.NAME reference, never the raw stored value", model.configureEnv.Value())
+	}
+}
+
+// TestConfigureFormWithoutDeclaredEnvBehavesExactlyAsBefore is the explicit non-regression
+// check for deliverable 1's "manifests without env[] behave exactly as today": the free-text
+// field, its placeholder, and the save format must be untouched.
+func TestConfigureFormWithoutDeclaredEnvBehavesExactlyAsBefore(t *testing.T) {
+	repositoryRoot := t.TempDir()
+	catalog := discovery.Catalog{Tools: []discovery.Tool{{
+		Name: "checks", Title: "Checks",
+		Manifest: toolspec.ToolManifest{Launch: toolspec.ToolManifestLaunch{Command: "true"}},
+	}}}
+	model := New(catalog, repositoryRoot)
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if model.configureEnv.Placeholder != "NAME=value, SECRET=env.SOURCE" || model.configureEnv.EchoMode != textinput.EchoNormal {
+		t.Fatalf("free-text env form regressed: placeholder=%q echoMode=%v", model.configureEnv.Placeholder, model.configureEnv.EchoMode)
 	}
 }
 
@@ -466,6 +574,73 @@ func TestRunListOpensAnArtifact(t *testing.T) {
 	model = requireModel(t, updated)
 	if !strings.Contains(model.notice, "Opened") {
 		t.Fatalf("model.notice = %q, want an Opened confirmation from actually running the open command", model.notice)
+	}
+}
+
+// TestRunListFallsBackToTheResolvedEvidenceDirectoryWhenNoArtifactWasReported is toolspec
+// v1.1's outputs.evidenceDir contract: a run whose status stream never reported an artifact
+// still shows (and can open, via the existing "enter" affordance) the evidence directory the
+// manifest declared, resolved out of that run's own persisted environment.
+func TestRunListFallsBackToTheResolvedEvidenceDirectoryWhenNoArtifactWasReported(t *testing.T) {
+	store := runs.Store{StateDirectory: t.TempDir()}
+	evidenceDirectory := "/repo/evidence/run-1"
+	row, err := store.Begin("checks", profile.ModeForeground, "/repo", nil,
+		[]string{"FIXTURE_EVIDENCE_DIR=" + evidenceDirectory}, time.Unix(100, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No status file is written, so Complete falls back to exit-code outcome with Artifact
+	// left empty — the case outputs.evidenceDir exists to cover.
+	if _, err := store.Complete(row.ID, 0, time.Unix(200, 0)); err != nil {
+		t.Fatal(err)
+	}
+	evidenceDirectoryKey := "FIXTURE_EVIDENCE_DIR"
+	tool := discovery.Tool{Name: "checks", Title: "Checks", Manifest: toolspec.ToolManifest{
+		Launch:  toolspec.ToolManifestLaunch{Command: "true"},
+		Outputs: &toolspec.ToolManifestOutputs{EvidenceDir: &evidenceDirectoryKey},
+	}}
+	installFakeExecutable(t, "open", "#!/bin/sh\nexit 0\n")
+	model := launchModel(t, store, tool)
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	if !strings.Contains(model.View(), evidenceDirectory) {
+		t.Fatalf("run list does not show the resolved evidence directory:\n%s", model.View())
+	}
+
+	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = requireModel(t, updated)
+	if command == nil {
+		t.Fatal("enter on a row with a resolved evidence directory should return an open command")
+	}
+	updated, _ = model.Update(command())
+	model = requireModel(t, updated)
+	if !strings.Contains(model.notice, "Opened "+evidenceDirectory) {
+		t.Fatalf("model.notice = %q, want it to confirm opening the resolved evidence directory", model.notice)
+	}
+}
+
+// TestRunListRendersTheDeclaredExitMeaningNextToAFinishedRunsCode is toolspec v1.1's `exit`
+// contract: a finished run's code is looked up against its tool's declared exit table and
+// rendered right beside the code, not left for a person to go find in the manifest.
+func TestRunListRendersTheDeclaredExitMeaningNextToAFinishedRunsCode(t *testing.T) {
+	store := runs.Store{StateDirectory: t.TempDir()}
+	row, err := store.Begin("checks", profile.ModeForeground, "/repo", nil, nil, time.Unix(100, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.StatusFile(row.ID), []byte(`{"event":"needs-human"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Complete(row.ID, 7, time.Unix(200, 0)); err != nil {
+		t.Fatal(err)
+	}
+	tool := discovery.Tool{Name: "checks", Title: "Checks", Manifest: toolspec.ToolManifest{
+		Launch: toolspec.ToolManifestLaunch{Command: "true"},
+		Exit:   toolspec.ToolManifestExit{"7": "an assertion proposal awaits review"},
+	}}
+	model := launchModel(t, store, tool)
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	if !strings.Contains(model.View(), "exit=7 (an assertion proposal awaits review)") {
+		t.Fatalf("run list does not show the declared exit meaning next to the code:\n%s", model.View())
 	}
 }
 

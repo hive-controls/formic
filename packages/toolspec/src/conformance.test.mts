@@ -14,6 +14,7 @@ const EXPECTED_INVALID_PATHS: Record<string, string> = {
   "missing-required.json": "",
   "wrong-type.json": "/launch/args",
   "unknown-property.json": "",
+  "bad-env-name.json": "/env/0/name",
 };
 
 function loadFixture(subdir: "valid" | "invalid", name: string): unknown {

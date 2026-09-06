@@ -201,6 +201,10 @@ func (model Model) openSelectedArtifact() (tea.Model, tea.Cmd) {
 		return model, nil
 	}
 	row := model.runRows[clampCursor(model.runCursor, len(model.runRows))]
+	// row.Artifact is swapped for the resolved evidence directory (toolspec v1.1
+	// outputs.evidenceDir) when the run's own status stream reported no artifact — reusing
+	// ArtifactCommand's existing path/URL handling rather than duplicating it.
+	row.Artifact = model.runArtifact(row)
 	command, err := launch.ArtifactCommand(row, model.goos)
 	if err != nil {
 		model.notice = err.Error()

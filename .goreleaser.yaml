@@ -1,0 +1,63 @@
+version: 2
+
+project_name: hivedeck
+
+before:
+  hooks:
+    # go.mod carries a replace directive to the vendored toolspec module
+    # (./packages/toolspec/go) — download resolves it before the build.
+    - go mod download
+
+builds:
+  - main: ./cmd/hivedeck
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.CommitDate}}
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  disable: true
+
+release:
+  mode: keep-existing
+  replace_existing_artifacts: true
+
+brews:
+  - name: hivedeck
+    repository:
+      owner: hive-controls
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: https://github.com/hive-controls/hivedeck
+    description: hivedeck is a terminal launcher and monitor for the tools that live in a repository.
+    license: MIT
+    install: |
+      bin.install "hivedeck"
+    test: |
+      system "#{bin}/hivedeck", "version"

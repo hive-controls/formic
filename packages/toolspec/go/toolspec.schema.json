@@ -117,6 +117,60 @@
           "type": "boolean"
         }
       }
+    },
+    "env": {
+      "description": "Environment variables this tool reads, so a launcher knows which keys to set and which are secrets, without guessing from source.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "description": "The environment variable name.",
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "description": {
+            "description": "What this variable controls and why a launcher user would set it.",
+            "type": "string"
+          },
+          "secret": {
+            "description": "true = a launcher must treat the value as a secret (never logged, never shown in plain UI).",
+            "type": "boolean",
+            "default": false
+          },
+          "required": {
+            "description": "true = the tool cannot run without this variable resolving to a value.",
+            "type": "boolean",
+            "default": false
+          },
+          "default": {
+            "description": "The value the tool falls back to when this variable is unset.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "outputs": {
+      "description": "Where this tool's produced artifacts land.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "evidenceDir": {
+          "description": "The name of an `env` entry above whose resolved value is the directory this tool writes its evidence into.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "exit": {
+      "description": "This tool's exit codes and what each one means, keyed by the code as a decimal string.",
+      "type": "object",
+      "patternProperties": {
+        "^[0-9]+$": { "type": "string" }
+      },
+      "additionalProperties": false
     }
   }
 }
