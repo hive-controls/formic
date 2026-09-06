@@ -1,14 +1,14 @@
 /**
- * Profile parsing/validation, and `healerFromProfile` turning a validated profile into
- * a live Healer (kept in this file per the Wave 1 brief — small enough not to split).
+ * Profile parsing/validation, and `envFromProfile` turning a validated profile into the
+ * environment a recipe reads (kept in this file per the Wave 1 brief — small enough not
+ * to split).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { HealContext } from "../types.mts";
-import { healerFromProfile } from "./healer-from-profile.mts";
+import { envFromProfile } from "./env-from-profile.mts";
 import {
   PROFILES_FILE,
   ProfileValidationError,
@@ -21,33 +21,7 @@ import {
   type ProfilesFile,
 } from "./profiles.mts";
 
-const CONTEXT: HealContext = {
-  spec: {
-    name: "t",
-    startUrl: "http://app.test/",
-    steps: [
-      { id: "st_1", index: 1, action: "goto", target: "http://app.test/" },
-    ],
-  },
-  failure: {
-    stepId: "st_1",
-    index: 1,
-    action: "goto",
-    target: "http://app.test/",
-    phase: "action",
-    error: "boom",
-  },
-  failedStep: {
-    id: "st_1",
-    index: 1,
-    action: "goto",
-    target: "http://app.test/",
-  },
-  url: "http://app.test/",
-  ariaSnapshot: "- document",
-  attempt: 1,
-  priorAttempts: [],
-};
+const PREFIX = "E2E_DOCTOR_";
 
 const VALID: ProfilesFile = {
   default: "local-api",
@@ -193,25 +167,42 @@ test("loadProfiles: a missing file is null, a malformed one throws", () => {
   }
 });
 
-test("healerFromProfile (agent): a known agent resolves without spawning anything", () => {
-  const profile: AgentProfile = { kind: "agent", agent: "claude" };
-  const healer = healerFromProfile(profile, "claude-agent", {});
-  assert.equal(healer.name, "agent:claude");
+test("envFromProfile (agent): a named preset resolves to the generic custom-command route", () => {
+  const profile: AgentProfile = { kind: "agent", agent: "kimi" };
+  const resolved = envFromProfile(profile, "kimi-agent", {}, PREFIX);
+  assert.deepEqual(resolved.values, {
+    E2E_DOCTOR_HEALER: "agent:custom",
+    E2E_DOCTOR_HEALER_AGENT_CMD: "kimi -p {prompt}",
+  });
+  assert.deepEqual(resolved.secretKeys, []);
 });
 
-test("healerFromProfile (agent): an unlisted agent is refused, listing known agents", () => {
+test("envFromProfile (agent): a model is baked into the argv, never left to a variable the recipe ignores", () => {
+  const profile: AgentProfile = {
+    kind: "agent",
+    agent: "claude",
+    model: "opus",
+  };
+  const resolved = envFromProfile(profile, "t", {}, PREFIX);
+  assert.match(
+    resolved.values.E2E_DOCTOR_HEALER_AGENT_CMD,
+    /claude -p \{prompt\}.*--model opus$/,
+  );
+});
+
+test("envFromProfile (agent): an unlisted agent is refused, listing known agents", () => {
   const profile: AgentProfile = { kind: "agent", agent: "cluade" };
   assert.throws(
-    () => healerFromProfile(profile, "t", {}),
+    () => envFromProfile(profile, "t", {}, PREFIX),
     /unknown agent "cluade"/,
   );
   assert.throws(
-    () => healerFromProfile(profile, "t", {}),
+    () => envFromProfile(profile, "t", {}, PREFIX),
     /claude \| codex \| kimi \| grok \| custom/,
   );
 });
 
-test("healerFromProfile (api): a missing apiKeyFrom variable names the variable and the profile", () => {
+test("envFromProfile (api): a missing apiKeyFrom variable names the variable and the profile", () => {
   const profile: ApiProfile = {
     kind: "api",
     preset: "custom",
@@ -220,44 +211,48 @@ test("healerFromProfile (api): a missing apiKeyFrom variable names the variable 
     apiKeyFrom: "env.MISSING_KEY_XYZ",
   };
   assert.throws(
-    () => healerFromProfile(profile, "prod", {}),
+    () => envFromProfile(profile, "prod", {}, PREFIX),
     /MISSING_KEY_XYZ/,
   );
-  assert.throws(() => healerFromProfile(profile, "prod", {}), /profile "prod"/);
+  assert.throws(
+    () => envFromProfile(profile, "prod", {}, PREFIX),
+    /profile "prod"/,
+  );
 });
 
-test("healerFromProfile (api): preset fills baseUrl+model; an explicit baseUrl overrides it", async () => {
-  const calls: string[] = [];
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (url: string | URL) => {
-    calls.push(String(url));
-    return new Response(
-      JSON.stringify({
-        choices: [
-          { message: { content: '{"kind":"no-repair","reason":"ok"}' } },
-        ],
-      }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    );
-  }) as typeof fetch;
-  try {
-    const filled: ApiProfile = {
-      kind: "api",
-      preset: "ollama",
-      model: "llama3",
-    };
-    await healerFromProfile(filled, "t", {}).propose(CONTEXT);
-    assert.equal(calls[0], "http://127.0.0.1:11434/v1/chat/completions");
+test("envFromProfile (api): the key is read by name from the environment and marked secret", () => {
+  const profile: ApiProfile = {
+    kind: "api",
+    preset: "custom",
+    baseUrl: "http://x/v1",
+    model: "m",
+    apiKeyFrom: "env.SOME_KEY",
+  };
+  const resolved = envFromProfile(
+    profile,
+    "prod",
+    { SOME_KEY: "s3cret" },
+    PREFIX,
+  );
+  assert.equal(resolved.values.E2E_DOCTOR_HEALER_API_KEY, "s3cret");
+  assert.deepEqual(resolved.secretKeys, ["E2E_DOCTOR_HEALER_API_KEY"]);
+});
 
-    const overridden: ApiProfile = {
-      kind: "api",
-      preset: "ollama",
-      baseUrl: "http://127.0.0.1:9999/v1",
-      model: "llama3",
-    };
-    await healerFromProfile(overridden, "t", {}).propose(CONTEXT);
-    assert.equal(calls[1], "http://127.0.0.1:9999/v1/chat/completions");
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+test("envFromProfile (api): preset fills baseUrl; an explicit baseUrl overrides it", () => {
+  const filled: ApiProfile = { kind: "api", preset: "ollama", model: "llama3" };
+  assert.equal(
+    envFromProfile(filled, "t", {}, PREFIX).values.E2E_DOCTOR_HEALER_BASE_URL,
+    "http://127.0.0.1:11434/v1",
+  );
+  const overridden: ApiProfile = {
+    kind: "api",
+    preset: "ollama",
+    baseUrl: "http://127.0.0.1:9999/v1",
+    model: "llama3",
+  };
+  assert.equal(
+    envFromProfile(overridden, "t", {}, PREFIX).values
+      .E2E_DOCTOR_HEALER_BASE_URL,
+    "http://127.0.0.1:9999/v1",
+  );
 });

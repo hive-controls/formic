@@ -12,7 +12,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { ADAPTERS } from "../healers/agent-cli.mts";
+import { AGENT_PRESETS as ADAPTERS } from "./agent-presets.mts";
 
 export const PROFILES_FILE = "formic.profiles.yaml";
 

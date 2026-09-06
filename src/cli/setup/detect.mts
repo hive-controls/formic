@@ -1,11 +1,11 @@
 /**
- * Agent detection for Launchie (`e2e-doctor setup`) — is a headless coding agent on
- * PATH, and does it answer `--version` before agent-cli.mts's own 30 s probe budget
- * (agent-cli.mts:184, the same figure reused here)? Detection never spawns a login
+ * Agent detection for Launchie (`formic setup`) — is a headless coding agent on
+ * PATH, and does it answer `--version` inside a 30 s probe budget (the same figure the
+ * recipe's own agent healer gives a version probe)? Detection never spawns a login
  * command: no adapter reviewed here exposes one, so `LOGIN_NOT_CHECKED_NOTE` is the
  * honest line the wizard prints once, not a check this module performs.
  *
- * `measuredLatency` copies agent-cli.mts's own VERIFIED comments (live, 2026-09-01)
+ * `measuredLatency` copies the presets' own VERIFIED notes (live, 2026-09-01)
  * rather than measuring again here: claude 53/68/42 s, codex 71 s, kimi 32 s,
  * grok 83 s. A custom/unlisted adapter has none on record, so it reads null.
  *
@@ -17,9 +17,9 @@
  */
 import { spawn } from "node:child_process";
 import {
-  ADAPTERS,
-  type AgentCliAdapter,
-} from "../../heal/healers/agent-cli.mts";
+  AGENT_PRESETS,
+  type AgentPreset,
+} from "../../heal/profiles/agent-presets.mts";
 
 export interface DetectSeams {
   which(command: string): Promise<string | null>;
@@ -51,6 +51,10 @@ const MEASURED_LATENCY: Record<string, string> = {
 };
 
 const VERSION_PROBE_BUDGET_MS = 30_000;
+
+/** Every preset answers `--version`; a command the platform has no preset for is not
+ *  detected at all, so there is no second shape to carry. */
+const VERSION_ARGS = ["--version"];
 
 function spawnOnce(
   command: string,
@@ -105,14 +109,14 @@ function firstNonEmptyLine(text: string): string | null {
 
 async function detectOne(
   seams: DetectSeams,
-  adapter: AgentCliAdapter,
+  adapter: AgentPreset,
 ): Promise<DetectedAgent> {
   const path = await seams.which(adapter.command).catch(() => null);
   const onPath = path !== null;
   let version: string | null = null;
   if (onPath) {
     const result = await seams
-      .run(adapter.command, adapter.versionArgs, VERSION_PROBE_BUDGET_MS)
+      .run(adapter.command, VERSION_ARGS, VERSION_PROBE_BUDGET_MS)
       .catch(() => null);
     if (result && result.code === 0) version = firstNonEmptyLine(result.stdout);
   }
@@ -129,7 +133,7 @@ async function detectOne(
 
 export async function detectAgents(
   seams: DetectSeams = defaultDetectSeams,
-  adapters: Record<string, AgentCliAdapter> = ADAPTERS,
+  adapters: Record<string, AgentPreset> = AGENT_PRESETS,
 ): Promise<DetectedAgent[]> {
   const out: DetectedAgent[] = [];
   for (const adapter of Object.values(adapters)) {

@@ -28,8 +28,9 @@ jobs:
 
       - run: npm ci
 
-      - run: npx playwright install --with-deps chromium
-
+      # No browser install: the platform imports no Playwright automation — only
+      # remote/{browserstack,saucelabs}.mts, which build a URL/capabilities string —
+      # and `@playwright/test` is not a dependency of the exported package.
       - run: npm test
 
       # Trusted publishing (OIDC) requires npm CLI >= 11.5.1.

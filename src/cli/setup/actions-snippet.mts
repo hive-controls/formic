@@ -56,7 +56,9 @@ function commentBlock(profile: HealerProfile, gate: SnippetGate): string {
 }
 
 function envBlock(profile: HealerProfile, gate: SnippetGate): string {
-  const lines = [`          FORMIC_GATE: ${gate}`];
+  // The recipe's own canonical name, not the platform's: this workflow runs the
+  // recipe directly, and its legacy twin would print a deprecation line every job.
+  const lines = [`          E2E_DOCTOR_GATE: ${gate}`];
   if (gate === "solari")
     lines.push("          SOLARI_API_KEY: ${{ secrets.SOLARI_API_KEY }}");
   const apiKeyName = apiKeyEnvName(profile);

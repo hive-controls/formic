@@ -1,7 +1,7 @@
 {
   "name": "@hive-controls/formic",
-  "version": "0.1.3",
-  "description": "Capture → compile → replay → heal → evidence: a computer-use agent harness that plugs into any browser substrate.",
+  "version": "0.2.0",
+  "description": "The tool contract's configurator: resolve gate, healer and profile choices into a recipe's declared environment, then run it.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -17,23 +17,16 @@
     "node": ">=20"
   },
   "exports": {
-    "./evidence": "./dist/evidence/index.mjs",
-    "./driver": "./dist/driver/index.mjs",
-    "./spec": "./dist/spec/index.mjs",
-    "./capture": "./dist/capture/index.mjs",
-    "./author": "./dist/author/index.mjs",
-    "./replay": "./dist/replay/index.mjs",
-    "./export": "./dist/export/index.mjs",
-    "./playwright": "./dist/playwright/index.mjs",
-    "./playwright/reporter": "./dist/playwright/reporter.mjs",
     "./fleet": "./dist/fleet/fleet.mjs",
-    "./host": "./dist/host/host.mjs",
-    "./profiles": "./dist/heal/profiles/profiles.mjs"
+    "./profiles": "./dist/heal/profiles/profiles.mjs",
+    "./remote": "./dist/remote/index.mjs",
+    "./run": "./dist/run/run.mjs",
+    "./status": "./dist/status/stream.mjs"
   },
-  "main": "./dist/spec/index.mjs",
-  "types": "./dist/spec/index.d.mts",
+  "main": "./dist/run/run.mjs",
+  "types": "./dist/run/run.d.mts",
   "bin": {
-    "e2e-doctor": "dist/cli/e2e-doctor.mjs"
+    "formic": "dist/cli/formic.mjs"
   },
   "files": [
     "dist",
@@ -47,18 +40,11 @@
     "test": "node --import tsx --test --test-timeout=360000 \"src/**/*.test.mts\" \"probes/**/*.test.mts\"",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "e2e-doctor": "node dist/cli/e2e-doctor.mjs",
-    "e2edoctor": "node dist/cli/e2e-doctor.mjs"
+    "formic": "node dist/cli/formic.mjs"
   },
   "dependencies": {
-    "@rrweb/record": "2.1.1",
-    "@solarisdk/browser": "^0.1.2",
-    "@solarisdk/sandbox": "^0.1.2",
-    "dotenv": "^17.4.2",
-    "rrweb-player": "2.1.1",
     "yaml": "^2.9.0",
-    "@playwright/test": "^1.62.1",
-    "playwright-core": "^1.62.1"
+    "@hive-controls/toolspec": "^0.1.0"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",

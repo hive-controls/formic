@@ -1,5 +1,5 @@
 /**
- * Launchie — `e2e-doctor setup`. Detects agents on PATH, asks (or reads flags for
+ * Launchie — `formic setup`. Detects agents on PATH, asks (or reads flags for
  * `--non-interactive`), runs a smoke heal against the chosen healer, and only THEN
  * writes the Cocoon: the gitignored `.env` (the key) and a committed
  * `formic.profiles.yaml` (everything else). A smoke failure writes nothing at all —
@@ -11,12 +11,10 @@
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ExitCode } from "../../replay/cli.mts";
 import {
-  ADAPTERS,
-  adapterFromCommand,
-  type AgentCliAdapter,
-} from "../../heal/healers/agent-cli.mts";
+  AGENT_PRESETS as ADAPTERS,
+  type AgentPreset,
+} from "../../heal/profiles/agent-presets.mts";
 import {
   PRESETS,
   PROFILES_FILE,
@@ -29,7 +27,6 @@ import {
   type PresetName,
   type ProfilesFile,
 } from "../../heal/profiles/profiles.mts";
-import { healerFromProfile } from "../../heal/profiles/healer-from-profile.mts";
 import { selectGate } from "../../fleet/fleet.mts";
 import { actionsSnippet, type SnippetGate } from "./actions-snippet.mts";
 import {
@@ -39,8 +36,8 @@ import {
   type DetectedAgent,
   type DetectSeams,
 } from "./detect.mts";
-import { ask, askSecret, choose, type PromptIo } from "./prompts.mts";
-import { smokeHeal, type SmokeHealFn, type SmokeResult } from "./smoke.mts";
+import { ask, askSecret, choose, type PromptIo } from "../prompts.mts";
+import { smokeRun, type SmokeFn, type SmokeResult } from "./smoke.mts";
 import { envIsIgnored, gitToplevel, upsertEnvVar } from "./credentials.mts";
 
 export interface SetupDeps {
@@ -51,8 +48,12 @@ export interface SetupDeps {
   error: (line: string) => void;
   detect: DetectSeams;
   fetch?: typeof fetch;
-  smoke?: SmokeHealFn;
+  smoke?: SmokeFn;
 }
+
+/** The wizard's own exit codes: 0 wrote a Cocoon, 1 the smoke check failed, 2 the
+ *  arguments were wrong. Declared here because the platform depends on no recipe. */
+export type ExitCode = 0 | 1 | 2;
 
 interface PendingWrite {
   varName: string;
@@ -77,6 +78,9 @@ type HealerKindChoice =
 
 const DEFAULT_AGENT_TIMEOUT_MS = 180_000;
 
+/** The recipe a smoke run exercises when `--recipe` names none. */
+const DEFAULT_RECIPE = "e2e-doctor";
+
 const TRADEOFF_COPY =
   "Agents: 30–90 s per repair (measured). APIs: seconds (unverified until the smoke heal runs). CI: Claude Code and Codex are reported to run headless with a vendor token (variable name not verified here); Kimi and Grok: unchecked.";
 
@@ -99,7 +103,7 @@ function printBanner(deps: SetupDeps): void {
   const toplevel = gitToplevel(deps.cwd);
   if (toplevel && toplevel !== deps.cwd) {
     deps.log(
-      "warning: e2e-doctor loads .env and formic.profiles.yaml from the directory it runs in",
+      "warning: .env and formic.profiles.yaml are read from the directory a run starts in",
     );
   }
 }
@@ -128,19 +132,34 @@ async function chooseHealerKind(
   return choose(io, "Choose a healer:", [...agentOptions, ...apiOptions]);
 }
 
+interface ResolvedAgent {
+  /** The named preset, or null for a command template the caller wrote. */
+  preset: AgentPreset | null;
+  name: string;
+  command?: string;
+  /** Whether a model can reach this agent at all, and how. */
+  modelRoute: "args" | "token" | "none";
+}
+
 function agentAdapterFromFlags(
   agentName: string | undefined,
   agentCmd: string | undefined,
-): { adapter: AgentCliAdapter; name: string; command?: string } | null {
+): ResolvedAgent | null {
   if (agentCmd) {
     return {
-      adapter: adapterFromCommand(agentCmd),
+      preset: null,
       name: "custom",
       command: agentCmd,
+      modelRoute: agentCmd.includes("{model}") ? "token" : "none",
     };
   }
   if (agentName && ADAPTERS[agentName]) {
-    return { adapter: ADAPTERS[agentName], name: agentName };
+    const preset = ADAPTERS[agentName];
+    return {
+      preset,
+      name: agentName,
+      modelRoute: preset.modelArgs ? "args" : "none",
+    };
   }
   return null;
 }
@@ -161,7 +180,7 @@ function buildAgentProfile(
   const model = option(argv, "--model");
   // Never write a model the adapter would silently drop — the printed healer label
   // and the audit row can only be true to what actually ran.
-  if (model && !resolved.adapter.modelArgs && !resolved.adapter.modelEnv) {
+  if (model && resolved.modelRoute === "none") {
     deps.error(
       `agent "${resolved.name}" exposes no model selector — cannot set --model ${model}`,
     );
@@ -169,7 +188,7 @@ function buildAgentProfile(
   }
   // The mirror image: a custom command whose template names {model} REQUIRES one —
   // an unfilled token would leave a dangling flag on every spawn.
-  if (!model && resolved.adapter.args.includes("{model}")) {
+  if (!model && resolved.modelRoute === "token") {
     deps.error(
       `agent "${resolved.name}": command names {model} but no --model was given`,
     );
@@ -433,11 +452,11 @@ function writeProfile(
 
 function formatSmokeSuccess(result: SmokeResult): string {
   const seconds = (result.latencyMs / 1000).toFixed(1);
-  const usage = result.usage
-    ? `; ${result.usage.inputTokens} in / ${result.usage.outputTokens} out tokens`
-    : "";
-  return `smoke heal: ok in ${seconds} s (${result.kind}${usage})`;
+  return `smoke (${result.mode}): ok in ${seconds} s — ${result.detail}`;
 }
+
+const HEALER_UNCHECKED_NOTE =
+  "the healer itself is not called here: a profile resolves to environment variables the recipe reads, so a bad key or base URL surfaces on the first heal.";
 
 async function runSmokeAndWrite(
   argv: string[],
@@ -446,30 +465,30 @@ async function runSmokeAndWrite(
   resolution: ProfileResolution,
 ): Promise<ExitCode> {
   const { profile, pendingWrite } = resolution;
-  if (profile.kind === "agent") {
-    deps.log(
-      "expect 30–90 s (measured on this machine's agents earlier) — waiting for the smoke heal…",
-    );
-  }
-  const healer = healerFromProfile(profile, profileName, deps.env);
-  const smokeFn = deps.smoke ?? smokeHeal;
-  const result = await smokeFn(healer, { timeoutMs: profile.timeoutMs }).catch(
-    (error: Error) => ({
-      ok: false as const,
-      latencyMs: 0,
-      error: error.message,
-    }),
-  );
+  const candidate: ProfilesFile = {
+    default: profileName,
+    profiles: { [profileName]: profile },
+  };
+  deps.log(HEALER_UNCHECKED_NOTE);
+  const smokeFn = deps.smoke ?? smokeRun;
+  const result = await smokeFn({
+    recipe: option(argv, "--recipe") ?? DEFAULT_RECIPE,
+    cwd: deps.cwd,
+    env: deps.env,
+    profiles: candidate,
+    profile: profileName,
+    log: deps.log,
+  }).catch((error: Error) => ({
+    ok: false as const,
+    mode: "config-only" as const,
+    latencyMs: 0,
+    detail: error.message,
+  }));
   if (!result.ok) {
-    deps.error(`smoke heal failed: ${result.error ?? "unknown error"}`);
+    deps.error(`smoke run failed: ${result.detail}`);
     return 1;
   }
   deps.log(formatSmokeSuccess(result));
-  if (result.kind && result.kind !== "no-repair") {
-    deps.log(
-      `warning: the healer proposed "${result.kind}" on a synthetic context with nothing to repair — expected no-repair`,
-    );
-  }
   if (pendingWrite)
     upsertEnvVar(deps.cwd, pendingWrite.varName, pendingWrite.value);
   writeProfile(argv, deps, profileName, profile);

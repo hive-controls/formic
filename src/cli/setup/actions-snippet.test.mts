@@ -53,7 +53,7 @@ test("parses as YAML with a jobs key", () => {
   assert.ok(parsed.jobs, "expected a jobs: key in the parsed workflow");
 });
 
-test("the local gate: FORMIC_GATE local, no Solari secret, a browser install step; a LAN base URL gets a reachability warning", () => {
+test("the local gate: E2E_DOCTOR_GATE local, no Solari secret, a browser install step; a LAN base URL gets a reachability warning", () => {
   const local = actionsSnippet(
     "l",
     {
@@ -64,7 +64,7 @@ test("the local gate: FORMIC_GATE local, no Solari secret, a browser install ste
     },
     "local",
   );
-  assert.match(local, /FORMIC_GATE: local/);
+  assert.match(local, /E2E_DOCTOR_GATE: local/);
   assert.ok(
     !local.includes("SOLARI_API_KEY"),
     "no cloud secret on the local gate",
@@ -79,6 +79,6 @@ test("the local gate: FORMIC_GATE local, no Solari secret, a browser install ste
     /models\.internal:8080\/v1 looks like a server on your own network/,
   );
   const cloud = actionsSnippet("t", API_PROFILE);
-  assert.match(cloud, /FORMIC_GATE: solari/);
+  assert.match(cloud, /E2E_DOCTOR_GATE: solari/);
   assert.ok(!cloud.includes("playwright install"));
 });

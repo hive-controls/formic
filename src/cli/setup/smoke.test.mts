@@ -1,79 +1,128 @@
 /**
- * `smokeHeal`'s adjudication against fake healers: ok is "a proposal parseProposal
- * accepts within the timeout", not "the proposal was no-repair" — see smoke.mts's
- * header for why. No real network egress and no real agent spawn anywhere here.
+ * The wizard's smoke check, offline: which mode it picks, and that a missing recipe
+ * degrades to a config-only pass with the reason in the line rather than a refusal.
+ * No browser, no agent spawn and no network egress anywhere here — the `health` mode
+ * runs `node --version`, and the `replay` mode is exercised through a fixture recipe
+ * whose launch command is `node -e`.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scriptedHealer } from "../../heal/scripted.mts";
-import type { Healer } from "../../heal/types.mts";
-import { smokeContext, smokeHeal } from "./smoke.mts";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fixturePair, smokeRun } from "./smoke.mts";
 
-test("smokeContext pins the exact synthetic failure the wizard smoke-tests against", () => {
-  const context = smokeContext();
-  assert.equal(context.url, "http://127.0.0.1:1/smoke");
-  assert.equal(context.ariaSnapshot, '- document "Smoke check"');
-  assert.equal(context.failure.error, "element not found");
-  assert.equal(context.failedStep.action, "click");
-  assert.equal(context.failedStep.target, "#approve");
-  assert.equal(context.attempt, 1);
-  assert.deepEqual(context.priorAttempts, []);
+function scratchDirectory(): string {
+  return mkdtempSync(join(tmpdir(), "formic-smoke-"));
+}
+
+function writeManifest(root: string, name: string, body: string): void {
+  writeFileSync(join(root, `${name}.toolspec.yaml`), body);
+}
+
+const HEALTH_ONLY = `toolspec: 1
+name: healthy
+title: Healthy
+description: A recipe that ships a health check and no fixture.
+launch:
+  command: node
+  args: ["-e", "process.exit(0)"]
+health:
+  check: ["node", "--version"]
+`;
+
+test("no manifest at all is a config-only pass that names what it could not find", async () => {
+  const root = scratchDirectory();
+  try {
+    const result = await smokeRun({
+      recipe: "absent",
+      cwd: root,
+      env: {},
+      log: () => {},
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.mode, "config-only");
+    assert.match(result.detail, /no manifest for "absent"/);
+    assert.match(result.detail, /written unchecked/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
-test("a no-repair proposal is ok, with its kind reported", async () => {
-  const healer = scriptedHealer([
-    { kind: "no-repair", reason: "nothing to fix" },
-  ]);
-  const result = await smokeHeal(healer, { timeoutMs: 5_000 });
-  assert.equal(result.ok, true);
-  assert.equal(result.kind, "no-repair");
-  assert.equal(result.usage, null);
+test("a recipe with a health check and no fixture runs the health check", async () => {
+  const root = scratchDirectory();
+  try {
+    writeManifest(root, "healthy", HEALTH_ONLY);
+    const result = await smokeRun({
+      recipe: "healthy",
+      cwd: root,
+      env: {},
+      log: () => {},
+    });
+    assert.equal(result.mode, "health");
+    assert.equal(result.ok, true);
+    assert.match(result.detail, /health check exited 0/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
-test("a non no-repair proposal is still ok — the kind is reported, not gated on", async () => {
-  const healer = scriptedHealer([
-    {
-      kind: "propose-assert-change",
-      stepId: "st_2",
-      to: { selector: "#approve" },
-      reason: "smoke context looks stale",
-    },
-  ]);
-  const result = await smokeHeal(healer, { timeoutMs: 5_000 });
-  assert.equal(result.ok, true);
-  assert.equal(result.kind, "propose-assert-change");
+test("a failing health check is not ok, and the exit code is reported", async () => {
+  const root = scratchDirectory();
+  try {
+    writeManifest(
+      root,
+      "sick",
+      HEALTH_ONLY.replace("name: healthy", "name: sick").replace(
+        'check: ["node", "--version"]',
+        'check: ["node", "-e", "process.exit(3)"]',
+      ),
+    );
+    const result = await smokeRun({
+      recipe: "sick",
+      cwd: root,
+      env: {},
+      log: () => {},
+    });
+    assert.equal(result.ok, false);
+    assert.match(result.detail, /exited 3/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
-test("a healer that throws is not ok, and the error message is reported", async () => {
-  const healer = scriptedHealer(() => {
-    throw new Error("endpoint refused the request");
-  });
-  const result = await smokeHeal(healer, { timeoutMs: 5_000 });
-  assert.equal(result.ok, false);
-  assert.match(result.error ?? "", /endpoint refused the request/);
-});
+test("the fixture convention is what opts a recipe into the stronger replay mode", async () => {
+  const root = scratchDirectory();
+  try {
+    writeFileSync(join(root, "runner.mjs"), "process.exit(0);\n");
+    writeManifest(
+      root,
+      "fixtured",
+      HEALTH_ONLY.replace(/healthy/g, "fixtured").replace(
+        'args: ["-e", "process.exit(0)"]',
+        'args: ["runner.mjs", "heal", "{spec}"]',
+      ),
+    );
+    const manifestPath = join(root, "fixtured.toolspec.yaml");
+    assert.equal(fixturePair(manifestPath), null);
+    mkdirSync(join(root, "fixtures", "specs"), { recursive: true });
+    mkdirSync(join(root, "fixtures", "sample-app"), { recursive: true });
+    assert.equal(fixturePair(manifestPath), null); // specs directory still empty
+    writeFileSync(join(root, "fixtures", "specs", "a.yaml"), "name: a\n");
+    const pair = fixturePair(manifestPath);
+    assert.equal(pair?.spec, join(root, "fixtures", "specs", "a.yaml"));
 
-test("a healer that never resolves times out", async () => {
-  const healer: Healer = {
-    name: "stuck",
-    modelVersion: "stuck",
-    propose: () => new Promise(() => {}),
-  };
-  const result = await smokeHeal(healer, { timeoutMs: 20 });
-  assert.equal(result.ok, false);
-  assert.match(result.error ?? "", /timed out/);
-});
-
-test("usage rides on the healer object and is passed through when present", async () => {
-  const healer = {
-    name: "fake",
-    modelVersion: "fake",
-    lastUsage: { inputTokens: 3, outputTokens: 2 },
-    async propose() {
-      return { kind: "no-repair" as const, reason: "ok" };
-    },
-  };
-  const result = await smokeHeal(healer, { timeoutMs: 5_000 });
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.usage, { inputTokens: 3, outputTokens: 2 });
+    const result = await smokeRun({
+      recipe: "fixtured",
+      cwd: root,
+      // PATH only: enough to find `node`, and nothing that could steer a gate.
+      env: { PATH: process.env.PATH },
+      log: () => {},
+    });
+    assert.equal(result.mode, "replay");
+    assert.equal(result.ok, true);
+    assert.match(result.detail, /exited 0/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

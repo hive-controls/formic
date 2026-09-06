@@ -5,14 +5,13 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { AgentCliAdapter } from "../../heal/healers/agent-cli.mts";
 import { describeAgent, detectAgents, type DetectSeams } from "./detect.mts";
+import type { AgentPreset } from "../../heal/profiles/agent-presets.mts";
 
-const FAKE_ADAPTER: AgentCliAdapter = {
+const FAKE_ADAPTER: AgentPreset = {
   name: "fake",
   command: "fake-agent",
   args: ["-p", "{prompt}"],
-  versionArgs: ["--version"],
   verified: false,
 };
 const ADAPTERS = { fake: FAKE_ADAPTER };

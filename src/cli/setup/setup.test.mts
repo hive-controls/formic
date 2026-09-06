@@ -1,7 +1,7 @@
 /**
  * `runSetup` end to end with every seam injected — no real agent spawn, no real
  * network egress (the one live `fetch` attempt in the interactive test targets an
- * unreachable loopback port, never a mock), no real smoke heal.
+ * unreachable loopback port, never a mock), no real smoke run.
  */
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -18,7 +18,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { parse as parseYaml } from "yaml";
 import type { DetectSeams } from "./detect.mts";
-import type { SmokeHealFn } from "./smoke.mts";
+import type { SmokeFn } from "./smoke.mts";
 import { runSetup, type SetupDeps, snippetGateFor } from "./setup.mts";
 
 let scratch: string;
@@ -37,16 +37,17 @@ function offlineDetectSeams(onPathNames: string[] = []): DetectSeams {
   };
 }
 
-const OK_SMOKE: SmokeHealFn = async () => ({
+const OK_SMOKE: SmokeFn = async () => ({
   ok: true,
-  kind: "no-repair",
+  mode: "replay",
   latencyMs: 12,
-  usage: { inputTokens: 10, outputTokens: 5 },
+  detail: "formic run e2e-doctor replay fixtures/specs/x.yaml exited 0",
 });
-const FAIL_SMOKE: SmokeHealFn = async () => ({
+const FAIL_SMOKE: SmokeFn = async () => ({
   ok: false,
+  mode: "replay",
   latencyMs: 8,
-  error: "HTTP 401 — bad key",
+  detail: "formic run e2e-doctor replay fixtures/specs/x.yaml exited 1",
 });
 
 function makeDeps(cwd: string, overrides: Partial<SetupDeps> = {}): SetupDeps {
