@@ -1,6 +1,6 @@
 {
   "name": "@hive-controls/formic",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Capture → compile → replay → heal → evidence: a computer-use agent harness that plugs into any browser substrate.",
   "license": "MIT",
   "repository": {

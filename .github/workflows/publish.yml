@@ -33,4 +33,13 @@ jobs:
       # Trusted publishing (OIDC) requires npm CLI >= 11.5.1.
       - run: npm install -g npm@latest
 
+      - name: Verify tag matches package version
+        if: github.event_name == 'release'
+        run: |
+          expected_tag="v$(jq -r .version package.json)"
+          if [ "$expected_tag" != "$GITHUB_REF_NAME" ]; then
+            echo "Error: Release tag '$GITHUB_REF_NAME' does not match package version '$expected_tag'"
+            exit 1
+          fi
+
       - run: npm publish --provenance --access public
