@@ -17,8 +17,11 @@ get deterministic suffixes, and titles preserve the original script keys.
 
 ### Homebrew
 
+Homebrew refuses to load a formula from a third-party tap until the tap is trusted, so the
+one-time `brew trust` step comes before install:
+
 ```sh
-brew install hive-controls/tap/hivedeck
+brew tap hive-controls/tap && brew trust hive-controls/tap && brew install hivedeck
 ```
 
 ### Release binaries
