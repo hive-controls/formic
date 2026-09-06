@@ -1,0 +1,69 @@
+{
+  "name": "@hive-controls/formic",
+  "version": "0.1.0",
+  "description": "Capture → compile → replay → heal → evidence: a computer-use agent harness that plugs into any browser substrate.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hive-controls/formic.git"
+  },
+  "homepage": "https://github.com/hive-controls/formic#readme",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    "./evidence": "./dist/evidence/index.mjs",
+    "./driver": "./dist/driver/index.mjs",
+    "./spec": "./dist/spec/index.mjs",
+    "./capture": "./dist/capture/index.mjs",
+    "./author": "./dist/author/index.mjs",
+    "./replay": "./dist/replay/index.mjs",
+    "./export": "./dist/export/index.mjs",
+    "./playwright": "./dist/playwright/index.mjs",
+    "./playwright/reporter": "./dist/playwright/reporter.mjs",
+    "./fleet": "./dist/fleet/fleet.mjs",
+    "./host": "./dist/host/host.mjs",
+    "./profiles": "./dist/heal/profiles/profiles.mjs"
+  },
+  "main": "./dist/spec/index.mjs",
+  "types": "./dist/spec/index.d.mts",
+  "bin": {
+    "e2e-doctor": "dist/cli/e2e-doctor.mjs"
+  },
+  "files": [
+    "dist",
+    "src",
+    "tsconfig.build.json"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "prepare": "npm run build",
+    "test": "node --import tsx --test \"src/**/*.test.mts\" \"probes/**/*.test.mts\"",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "e2e-doctor": "node dist/cli/e2e-doctor.mjs",
+    "e2edoctor": "node dist/cli/e2e-doctor.mjs"
+  },
+  "dependencies": {
+    "@rrweb/record": "2.1.1",
+    "@solarisdk/browser": "^0.1.2",
+    "@solarisdk/sandbox": "^0.1.2",
+    "dotenv": "^17.4.2",
+    "rrweb-player": "2.1.1",
+    "yaml": "^2.9.0",
+    "@playwright/test": "^1.62.1",
+    "playwright-core": "^1.62.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "eslint": "^10.9.1"
+  }
+}

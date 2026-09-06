@@ -1,0 +1,81 @@
+# A compile-only fixture: it exists so the export compiler is exercised over every
+# step kind and every assertion predicate the spec grammar allows, which the captured
+# approve-an-order flow does not reach (no press, select, waitFor, hidden or text
+# locator in it). The #region select has no counterpart in the demo app, so this spec
+# is never replayed — it is compiled. The last step references its value rather than
+# carrying it, so every target is exercised on the reference form too.
+name: grammar-coverage
+startUrl: http://127.0.0.1:4173/
+steps:
+  - id: st_gc000001
+    index: 1
+    action: goto
+    target: http://127.0.0.1:4173/
+  - id: st_gc000002
+    index: 2
+    action: fill
+    target: "#email"
+    value: ops@forgedepot.test
+    assert:
+      selector: "#email"
+      visible: true
+  - id: st_gc000003
+    index: 3
+    action: press
+    target: "#password"
+    value: Enter
+    assert:
+      selector: "#login-error"
+      visible: false
+  - id: st_gc000004
+    index: 4
+    action: waitFor
+    target: "#order-list"
+  - id: st_gc000005
+    index: 5
+    action: select
+    target: "#region"
+    value: emea
+    assert:
+      selector: "#region"
+      visible: true
+  - id: st_gc000006
+    index: 6
+    action: click
+    target: '[data-order-id="SO-4471"]'
+    assert:
+      text: Northwind Traders
+  - id: st_gc000007
+    index: 7
+    action: click
+    target: "#approve-button"
+    assert:
+      url: http://127.0.0.1:4173/orders/SO-4471/confirmation
+  - id: st_gc000008
+    index: 8
+    action: waitFor
+    target: '[data-testid="confirmation"]'
+    assert:
+      urlPrefix: http://127.0.0.1:4173/orders/
+  - id: st_gc000009
+    index: 9
+    action: waitFor
+    target: '[data-testid="confirmation"]'
+    assert:
+      urlPattern: "^http://127\\.0\\.0\\.1:4173/orders/SO-\\d+/confirmation$"
+  - id: st_gc000010
+    index: 10
+    action: waitFor
+    target: '[data-testid="confirmation"]'
+    assert:
+      testId: confirmation
+      hasText: Order approved
+      containsText: approved
+  - id: st_gc000011
+    index: 11
+    action: fill
+    target: "#password"
+    valueFrom: env.GRAMMAR_COVERAGE_PASSWORD
+    assert:
+      selector: "#password"
+      visible: true

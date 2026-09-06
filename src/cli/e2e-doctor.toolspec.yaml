@@ -1,0 +1,32 @@
+toolspec: 1
+name: e2e-doctor
+title: E2E Doctor
+description: Replay a captured browser spec, or heal it against a live app.
+launch:
+  command: node
+  args:
+    [
+      "--import",
+      "tsx",
+      "packages/harness/src/cli/e2e-doctor.mts",
+      "heal",
+      "{spec}",
+    ]
+  cwd: "{repo}"
+config:
+  files: [".env", "formic.profiles.yaml"]
+health:
+  check:
+    [
+      "node",
+      "--import",
+      "tsx",
+      "--check",
+      "packages/harness/src/cli/e2e-doctor.mts",
+    ]
+status:
+  kind: ndjson
+  events: [started, progress, ok, failed, needs-human]
+pane:
+  prefer: window
+  interactive: false

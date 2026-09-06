@@ -1,0 +1,36 @@
+# Publishes @hive-controls/formic to npm via OIDC trusted publishing — no long-lived
+# npm token is stored in this repository. Before the first release through this
+# workflow, an npm org owner must register a trusted publisher for this package on
+# npmjs.com (Settings -> Publishing access -> Trusted publisher) naming this exact
+# GitHub repository and this exact workflow filename (publish.yml). Until that is
+# done, `npm publish` below will be rejected by the registry.
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - run: npm test
+
+      # Trusted publishing (OIDC) requires npm CLI >= 11.5.1.
+      - run: npm install -g npm@latest
+
+      - run: npm publish --provenance --access public

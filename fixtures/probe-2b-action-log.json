@@ -1,0 +1,33 @@
+{
+  "sessionId": "backend.example.test:edbdee87-9aa8-443f-8395-24bff108463b:cmtiwgpoh00b8nr01c7ypkj54:1788283836186.J3agozOo5-c-73MbzlxxvA",
+  "createdAt": 1788283835706,
+  "sessionReadyAt": 1788283836194,
+  "lastActionAt": 1788283845845,
+  "releasedAt": 1788283846227,
+  "actions": [
+    {
+      "step": 1,
+      "action": "goto:example.com",
+      "startedAt": 1788283836658,
+      "endedAt": 1788283836886
+    },
+    {
+      "step": 2,
+      "action": "click:more-information",
+      "startedAt": 1788283838888,
+      "endedAt": 1788283839518
+    },
+    {
+      "step": 3,
+      "action": "goBack",
+      "startedAt": 1788283841520,
+      "endedAt": 1788283841673
+    },
+    {
+      "step": 4,
+      "action": "goto:iana.org",
+      "startedAt": 1788283843674,
+      "endedAt": 1788283843845
+    }
+  ]
+}

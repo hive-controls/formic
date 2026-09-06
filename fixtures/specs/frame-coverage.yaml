@@ -1,0 +1,55 @@
+# A compile-only fixture for the frame grammar, alongside grammar-coverage.yaml.
+#
+# It exercises the two chain shapes a target has to tell apart: an all-selector chain,
+# which Playwright compiles to its own `frameLocator` idiom, and a chain that asks a
+# parent for a NAMED child, which has no locator spelling and goes through the emitted
+# lookup helper instead. It also carries an assertion with a frame of its own, and one
+# that inherits its step's — the two halves of the inheritance rule.
+#
+# Never replayed: the sample app has no frames. It is compiled, and the goldens are the
+# deliverable. Cypress refuses this spec by name — see the compiler tests.
+name: frame-coverage
+startUrl: http://127.0.0.1:4173/
+steps:
+  - id: st_fc000001
+    index: 1
+    action: goto
+    target: http://127.0.0.1:4173/
+  - id: st_fc000002
+    index: 2
+    action: fill
+    target: "#card-number"
+    value: "4242"
+    frame:
+      - selector: "#checkout"
+      - selector: "#payment"
+    assert:
+      selector: "#card-number"
+      visible: true
+  - id: st_fc000003
+    index: 3
+    action: click
+    target: "#pay"
+    frame:
+      - selector: "#checkout"
+      - name: payment-frame
+    assert:
+      testId: receipt
+      hasText: Paid
+  - id: st_fc000004
+    index: 4
+    action: waitFor
+    target: "#spinner"
+    frame:
+      - urlPrefix: http://127.0.0.1:4173/embed/
+  - id: st_fc000005
+    index: 5
+    action: click
+    target: "#confirm"
+    frame:
+      - selector: "#checkout"
+    assert:
+      testId: host-banner
+      containsText: Thank you
+      frame:
+        - url: http://127.0.0.1:4173/banner

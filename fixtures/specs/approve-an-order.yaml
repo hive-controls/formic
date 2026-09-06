@@ -1,0 +1,54 @@
+name: approve-an-order
+startUrl: http://127.0.0.1:4173/
+capturedBy: local-playwright
+capturedAt: 2026-09-01T19:17:57.239Z
+steps:
+  - id: st_8c28faa1
+    index: 1
+    action: goto
+    target: http://127.0.0.1:4173/
+  - id: st_d6304bf5
+    index: 2
+    action: fill
+    target: "#email"
+    value: ops@forgedepot.test
+    assert:
+      selector: "#email"
+      visible: true
+  - id: st_b1f495b5
+    index: 3
+    action: fill
+    target: "#password"
+    value: hunter2
+    assert:
+      selector: "#password"
+      visible: true
+  - id: st_6c4760ff
+    index: 4
+    action: click
+    target: "#signin-button"
+    assert:
+      testId: current-user
+      hasText: ops@forgedepot.test
+  - id: st_3bfe602b
+    index: 5
+    action: click
+    target: '[data-order-id="SO-4472"]'
+    assert:
+      testId: detail-customer
+      hasText: Contoso Rail
+  - id: st_b0ddf21c
+    index: 6
+    action: fill
+    target: "#note"
+    value: verified against PO 88120
+    assert:
+      selector: "#note"
+      visible: true
+  - id: st_28efd87b
+    index: 7
+    action: click
+    target: "#approve-button"
+    assert:
+      testId: confirmation
+      hasText: Order approved

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-export="export-denylist: ok">Forge Depot — demo target</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="brand">Forge Depot</span><!-- export-denylist: ok -->
+      <span class="who" data-testid="current-user"></span>
+    </header>
+
+    <!-- ── Step 1: sign in ─────────────────────────────────────────── -->
+    <section id="view-login" class="view">
+      <h1>Sign in</h1>
+      <form id="login-form" novalidate>
+        <label for="email">Email</label>
+        <input
+          id="email"
+          name="email"
+          type="email"
+          autocomplete="off"
+          placeholder="you@example.com"
+        />
+
+        <label for="password">Password</label>
+        <input
+          id="password"
+          name="password"
+          type="password"
+          autocomplete="off"
+          placeholder="any 4+ characters"
+        />
+
+        <button id="signin-button" type="submit">Sign in</button>
+        <p id="login-error" class="error" hidden>
+          Enter an email and a 4-character password.
+        </p>
+      </form>
+    </section>
+
+    <!-- ── Step 2: order list ──────────────────────────────────────── -->
+    <section id="view-orders" class="view" hidden>
+      <h1>Open orders</h1>
+      <ul id="order-list" class="orders"></ul>
+    </section>
+
+    <!-- ── Step 3: order detail ────────────────────────────────────── -->
+    <section id="view-detail" class="view" hidden>
+      <button class="link-button" data-action="back">
+        &larr; Back to orders
+      </button>
+      <h1 id="detail-title"></h1>
+      <dl class="detail">
+        <dt>Order</dt>
+        <dd data-testid="detail-id"></dd>
+        <dt>Customer</dt>
+        <dd data-testid="detail-customer"></dd>
+        <dt>Total</dt>
+        <dd data-testid="detail-total"></dd>
+      </dl>
+      <label for="note">Approval note</label>
+      <textarea
+        id="note"
+        rows="3"
+        placeholder="Optional note for the audit trail"
+      ></textarea>
+      <button id="approve-button" type="button">Approve order</button>
+    </section>
+
+    <!-- ── Step 4: confirmation ────────────────────────────────────── -->
+    <section id="view-done" class="view" hidden>
+      <h1 data-testid="confirmation">Order approved</h1>
+      <p id="confirmation-detail"></p>
+      <button class="link-button" data-action="restart">Approve another</button>
+    </section>
+
+    <script src="app.js"></script>
+  </body>
+</html>

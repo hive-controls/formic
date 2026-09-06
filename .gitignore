@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+formic.profiles.yaml.local
+test-results/
+playwright-report/
+.e2e-doctor-worktrees/
+.DS_Store
