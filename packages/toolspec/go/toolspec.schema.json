@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hive-controls.dev/schemas/toolspec-1.json",
+  "title": "ToolManifest",
+  "description": "A tool manifest: how a launcher discovers, configures, launches, and monitors one tool.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["toolspec", "name", "launch"],
+  "properties": {
+    "toolspec": {
+      "description": "Manifest schema version. v1 is the only version this schema accepts.",
+      "type": "integer",
+      "const": 1
+    },
+    "name": {
+      "description": "Stable machine-readable tool identifier, unique per discovery source.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "title": {
+      "description": "Human-readable display name shown in a launcher's tool list.",
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "description": "One-line description of what the tool does.",
+      "type": "string"
+    },
+    "launch": {
+      "description": "How the launcher runs the tool.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "command": {
+          "description": "The executable to run.",
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "description": "Argv passed to command. May contain {spec}/{repo}-style placeholder tokens the launcher substitutes.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "cwd": {
+          "description": "Working directory the command runs in. May contain a {repo}-style placeholder token.",
+          "type": "string"
+        }
+      }
+    },
+    "config": {
+      "description": "What the tool reads for per-repo configuration.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "description": "Path to a JSON Schema the launcher renders a config form from.",
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "description": "Files this tool reads, shown to the user but never parsed for values by the launcher.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "status": {
+      "description": "How the launcher observes run status. Omitted entirely means the launcher falls back to exit-code monitoring.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "description": "exit-code is the mandatory fallback every tool supports implicitly; ndjson and logfile are opt-in richer status channels.",
+          "enum": ["ndjson", "exit-code", "logfile"]
+        },
+        "fd": {
+          "description": "Which stream the ndjson status events are read from. Only meaningful when kind is ndjson.",
+          "enum": ["stdout", "stderr"]
+        },
+        "events": {
+          "description": "The event kinds this tool's status stream may emit.",
+          "type": "array",
+          "items": {
+            "enum": ["started", "progress", "ok", "failed", "needs-human"]
+          }
+        }
+      }
+    },
+    "health": {
+      "description": "How the launcher checks the tool is installed/runnable before offering it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check"],
+      "properties": {
+        "check": {
+          "description": "Argv of a command that exits 0 when the tool is healthy.",
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        }
+      }
+    },
+    "pane": {
+      "description": "How the launcher should host this tool's terminal output.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prefer": {
+          "description": "The launcher's preferred hosting strategy for this tool.",
+          "enum": ["window", "split", "inline"]
+        },
+        "interactive": {
+          "description": "true = this tool needs a real TTY and must never be run in a captured pane.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

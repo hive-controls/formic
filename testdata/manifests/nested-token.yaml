@@ -1,0 +1,5 @@
+toolspec: 1
+name: nested-token
+launch:
+  command: sample
+  args: ["{{repo}}"]

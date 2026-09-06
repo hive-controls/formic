@@ -1,0 +1,13 @@
+toolspec: 1
+name: sample-tool
+title: Sample Tool
+description: Exercises manifest loading.
+launch:
+  command: sample
+  args: ["{spec}"]
+  cwd: "{repo}"
+config:
+  schema: config.schema.json
+  files: [sample.yaml]
+status:
+  kind: exit-code

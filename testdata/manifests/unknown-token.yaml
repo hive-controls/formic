@@ -1,0 +1,5 @@
+toolspec: 1
+name: unknown-token
+launch:
+  command: sample
+  args: ["{mystery}"]

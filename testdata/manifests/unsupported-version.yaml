@@ -1,0 +1,4 @@
+toolspec: 2
+name: unsupported-version-tool
+launch:
+  command: sample

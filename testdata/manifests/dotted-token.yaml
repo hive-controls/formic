@@ -1,0 +1,5 @@
+toolspec: 1
+name: dotted-token
+launch:
+  command: sample
+  args: ["{repo.path}"]
