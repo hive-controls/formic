@@ -30,3 +30,49 @@ status:
 pane:
   prefer: window
   interactive: false
+env:
+  - name: FORMIC_GATE
+    description: "Which gate backend replays run through: solari (a recorded Solari cloud-browser session) or local (headless Chromium). Auto-selects solari when SOLARI_API_KEY resolves, else local; a typo is refused, never silently local."
+  - name: FORMIC_HOST
+    description: "Where the app under test is served from for --app. Unset, follows the gate: solari-sandbox on Outside, local on Inside; a typo is refused."
+  - name: FORMIC_HEADED
+    description: "1 = run the browser headed instead of headless."
+  - name: FORMIC_HEALER
+    description: "openai-compatible (default) | agent:claude | agent:codex | agent:kimi | agent:grok | agent:custom — which healer backend answers a repair request."
+    default: openai-compatible
+  - name: FORMIC_HEALER_BASE_URL
+    description: "OpenAI-compatible base for the healer request — OpenRouter, OpenAI, Ollama/LM Studio/llama.cpp/vLLM, or Anthropic's compatible endpoint."
+    default: "https://api.anthropic.com/v1"
+  - name: FORMIC_HEALER_MODEL
+    description: "Model name passed to the healer's OpenAI-compatible endpoint."
+    default: claude-sonnet-5
+  - name: FORMIC_HEALER_API_KEY
+    description: "Bearer for the healer's OpenAI-compatible endpoint; optional for local servers."
+    secret: true
+  - name: FORMIC_HEALER_AGENT_CMD
+    description: 'Command template for agent:custom, e.g. "mycli --headless {prompt}".'
+  - name: FORMIC_HEALER_TIMEOUT_MS
+    description: "Per-proposal timeout for the healer request, in milliseconds."
+    default: "180000"
+  - name: FORMIC_HEALER_MAX_ATTEMPTS
+    description: "How many heal attempts the loop makes before giving up."
+    default: "2"
+  - name: FORMIC_HEAL_WORKSPACES
+    description: "Root directory the agent-cli healer's sandboxed heal workspaces are kept under, as audit material."
+  - name: FORMIC_EVIDENCE_DIR
+    description: "Where heal --pr commits the evidence bundle, repo-relative. Unset, it is derived from the spec."
+  - name: SOLARI_API_KEY
+    description: "Bearer for the Solari cloud-browser API (console.getsolari.com); needed by the solari gate and the solari-sandbox host."
+    secret: true
+  - name: SOLARI_BASE_URL
+    description: "Override for the Solari API base URL."
+    default: "https://api.getsolari.com"
+  - name: HIVEDECK_STATUS_FILE
+    description: "File-only NDJSON status side channel a launcher sets per run; unset, no status events are emitted anywhere."
+outputs:
+  evidenceDir: FORMIC_EVIDENCE_DIR
+exit:
+  "0": "passed (no repair needed) or healed (repair verified by a green replay)"
+  "1": "needs-human (an assertion proposal awaits review) or unhealed"
+  "2": "the harness could not start, the healer failed, or evidence could not be written"
+  "3": "preview-unavailable (the app host stopped serving before healing) — an environment fault, not a heal verdict"
