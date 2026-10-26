@@ -1,0 +1,9 @@
+formic: 1
+name: choice-no-options
+launch:
+  command: tool
+actions:
+  - name: start
+    arguments:
+      - flag: --mode
+        kind: choice

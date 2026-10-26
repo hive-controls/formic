@@ -1,0 +1,513 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hive-controls/formic/main/schema/manifest.schema.json",
+  "title": "ToolManifest",
+  "description": "A tool manifest: how a launcher discovers, configures, launches, and monitors one tool.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["formic", "name", "launch"],
+  "properties": {
+    "$schema": {
+      "description": "Optional reference to this schema, for editor validation. Ignored by the launcher.",
+      "type": "string"
+    },
+    "formic": {
+      "description": "Manifest schema version. v1 is the only version this schema accepts.",
+      "type": "integer",
+      "const": 1
+    },
+    "name": {
+      "description": "Stable machine-readable tool identifier, unique per discovery source.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "title": {
+      "description": "Human-readable display name shown in a launcher's tool list.",
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "description": "One-line description of what the tool does.",
+      "type": "string"
+    },
+    "launch": {
+      "description": "How the launcher runs the tool.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "command": {
+          "description": "The executable to run. May contain placeholder tokens, substituted like those in launch.args.",
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "description": "Argv passed to command. May contain {spec}/{repo}-style placeholder tokens the launcher substitutes; tokens are substituted in launch.command, launch.args and launch.cwd, never in env values.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "cwd": {
+          "description": "Working directory the command runs in. May contain a {repo}-style placeholder token, substituted like those in launch.args.",
+          "type": "string"
+        }
+      }
+    },
+    "config": {
+      "description": "What the tool reads for per-repo configuration.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "description": "Path to a JSON Schema the launcher renders a config form from.",
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "description": "Files this tool reads, shown to the user for reference only: never parsed, resolved or opened by the launcher. Absolute paths and paths outside the source root are allowed.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "status": {
+      "description": "How the launcher observes run status. Omitted entirely means the launcher falls back to exit-code monitoring.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "description": "exit-code is the mandatory fallback every tool supports implicitly; ndjson and logfile are opt-in richer status channels.",
+          "enum": ["ndjson", "exit-code", "logfile"]
+        },
+        "fd": {
+          "description": "Which stream the ndjson status events are read from. Only meaningful when kind is ndjson.",
+          "enum": ["stdout", "stderr"]
+        },
+        "events": {
+          "description": "The event kinds this tool's status stream may emit.",
+          "type": "array",
+          "items": {
+            "enum": ["started", "progress", "ok", "failed", "needs-human"]
+          }
+        }
+      }
+    },
+    "health": {
+      "description": "How the launcher checks the tool is installed/runnable before offering it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check"],
+      "properties": {
+        "check": {
+          "description": "Argv of a command that exits 0 when the tool is healthy.",
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        }
+      }
+    },
+    "pane": {
+      "description": "How the launcher should host this tool's terminal output.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prefer": {
+          "description": "The launcher's preferred hosting strategy for this tool.",
+          "enum": ["window", "split", "inline"]
+        },
+        "interactive": {
+          "description": "true = this tool needs a real TTY and must never be run in a captured pane.",
+          "type": "boolean"
+        }
+      }
+    },
+    "env": {
+      "description": "Environment variables this tool reads, so a launcher knows which keys to set and which are secrets, without guessing from source.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "description": "The environment variable name.",
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "description": {
+            "description": "What this variable controls and why a launcher user would set it.",
+            "type": "string"
+          },
+          "secret": {
+            "description": "true = a launcher must treat the value as a secret (never logged, never shown in plain UI).",
+            "type": "boolean",
+            "default": false
+          },
+          "required": {
+            "description": "true = the tool cannot run without this variable resolving to a value.",
+            "type": "boolean",
+            "default": false
+          },
+          "default": {
+            "description": "The value the tool falls back to when this variable is unset.",
+            "type": "string"
+          },
+          "options": {
+            "description": "Enumerated values this variable accepts. Present and non-empty: a launcher renders the row as a chooser instead of free text. An empty list means no options (free text).",
+            "type": "array",
+            "items": { "$ref": "#/$defs/option" }
+          }
+        }
+      }
+    },
+    "outputs": {
+      "description": "Where this tool's produced artifacts land.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "evidenceDir": {
+          "description": "The name of an `env` entry above whose resolved value is the directory this tool writes its evidence into.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "exit": {
+      "description": "This tool's exit codes and what each one means, keyed by the code as a decimal string.",
+      "type": "object",
+      "patternProperties": {
+        "^[0-9]+$": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "needs": {
+      "description": "Things this tool requires before it can run: a secret, a provider gate, a runtime, a network policy, or a running service. Resolved against the machine's equip file before launch.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/need" }
+    },
+    "inputs": {
+      "description": "Named per-run inputs this tool accepts, substituted as {name} tokens into launch.command, launch.args and launch.cwd.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/input" }
+    },
+    "arguments": {
+      "description": "Launch arguments this tool accepts, stored per repo as modifiers in the profile's args list and appended after launch.args. Never asked per run (see inputs); never changes launch.command.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/argument" }
+    },
+    "actions": {
+      "description": "Named actions over this one tool. Absent: the manifest is one implicit action (launch as declared). Present: a launcher shows the actions as a menu and launches one by name; launch supplies the shared command, cwd and argv prefix.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/action" }
+    },
+    "lifecycle": {
+      "description": "task (default): the tool runs and exits. service: the launched process is the long-running service. Applies to a manifest with no actions[]; an action declares its own.",
+      "enum": ["task", "service"]
+    },
+    "live": { "$ref": "#/$defs/live" }
+  },
+  "$defs": {
+    "option": {
+      "description": "One enumerated value an env entry or argument accepts.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": {
+          "description": "The value itself, exactly as it is stored or passed.",
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "description": "What choosing this value does, shown beside it in a chooser.",
+          "type": "string"
+        }
+      }
+    },
+    "argument": {
+      "description": "One launch argument a tool accepts. Serialized into the profile's args list: kind flag emits the flag alone when chosen; kind value and kind choice emit the flag, then its value.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flag", "kind"],
+      "properties": {
+        "flag": {
+          "description": "The flag exactly as it is passed on the command line, e.g. --healer.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^-"
+        },
+        "description": {
+          "description": "What this argument does, shown beside it in a launcher's customize form.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "flag: the flag alone when chosen. value: the flag followed by a free-text value. choice: the flag followed by one of options.",
+          "enum": ["flag", "value", "choice"]
+        },
+        "options": {
+          "description": "The values a choice argument accepts; a choice with none is refused by doctor. Unused by the other kinds.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/option" }
+        },
+        "default": {
+          "description": "A value a launcher form prefills when none is saved. Only a prefill, never added at launch unless saved into the profile; ignored for kind flag.",
+          "type": "string"
+        }
+      }
+    },
+    "action": {
+      "description": "One action a launcher may run over this tool.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "description": "Unique within the manifest; the second word of `formic launch <tool> <action>`.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "command": {
+          "description": "Set: this action stands alone, with its own executable and argv (launch.args are not prefixed); cwd is inherited from launch unless set. Unset: launch.command, with args appended to launch.args. Placeholders are substituted as in launch.",
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "description": "Appended to launch.args (or the whole argv after command, when command is set). Placeholders are substituted.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "cwd": {
+          "description": "Overrides launch.cwd. Placeholders are substituted.",
+          "type": "string"
+        },
+        "arguments": {
+          "description": "This action's own declared arguments, after the manifest-level arguments; a flag declared at both levels is refused.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/argument" }
+        },
+        "confirm": {
+          "description": "A sentence a launcher asks y/N before running; a non-interactive launch needs an explicit yes.",
+          "type": "string",
+          "minLength": 1
+        },
+        "interactive": {
+          "description": "true = needs a real terminal (never captured). Unset: inherits pane.interactive.",
+          "type": "boolean"
+        },
+        "exit": {
+          "description": "This action's exit codes and their meanings, keyed by the code as a decimal string; a code it does not list falls back to the manifest-level exit.",
+          "type": "object",
+          "patternProperties": {
+            "^[0-9]+$": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "lifecycle": {
+          "description": "task (default) or service. A launcher opens a service action in its own tab.",
+          "enum": ["task", "service"]
+        },
+        "whenUp": {
+          "description": "What to do when the tool's live probe already answers (up, or idle): skip, or launch anyway.",
+          "enum": ["launch", "skip"]
+        },
+        "ready": { "$ref": "#/$defs/ready" }
+      }
+    },
+    "live": {
+      "description": "How a launcher asks whether this tool's service is up. The probe, whenUp and ready here serve a manifest with no actions[]; an action declares its own whenUp and ready.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["probe"],
+      "properties": {
+        "probe": { "$ref": "#/$defs/probe" },
+        "whenUp": { "enum": ["launch", "skip"] },
+        "ready": { "$ref": "#/$defs/ready" }
+      }
+    },
+    "probe": {
+      "description": "Exactly one probe kind: http, tcp or command. A command probe exiting 0 reports up.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["http"],
+          "properties": {
+            "http": { "type": "string", "minLength": 1 },
+            "expect": {
+              "oneOf": [
+                { "enum": ["any", "2xx"] },
+                { "type": "integer", "minimum": 100, "maximum": 599 }
+              ]
+            },
+            "timeout": { "$ref": "#/$defs/duration" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tcp"],
+          "properties": {
+            "tcp": { "type": "string", "pattern": "^[^\\s:]+:[0-9]+$" },
+            "timeout": { "$ref": "#/$defs/duration" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command"],
+          "properties": {
+            "command": {
+              "type": "array",
+              "items": { "type": "string" },
+              "minItems": 1
+            },
+            "timeout": { "$ref": "#/$defs/duration" },
+            "idleExit": {
+              "description": "A command probe exiting with this code reports idle: the service answers but has nothing running. Exit 0 is still up; any other code is down.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 255
+            }
+          }
+        }
+      ]
+    },
+    "ready": {
+      "description": "How long a launcher waits for a freshly started service to answer its probe (up, or idle), after a task exits 0 or after a service is spawned. The wait never changes the run's own outcome or exit code.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["within"],
+      "properties": {
+        "within": { "$ref": "#/$defs/duration" }
+      }
+    },
+    "duration": {
+      "description": "A Go-style duration: 500ms, 5s, 2m.",
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]+)?(ms|s|m)$"
+    },
+    "need": {
+      "description": "One thing a tool requires before it can run.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "name"],
+          "properties": {
+            "kind": { "const": "secret" },
+            "name": {
+              "description": "The secret's name, as recorded in the machine's equip file.",
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "class", "env", "providers"],
+          "properties": {
+            "kind": { "const": "gate" },
+            "class": {
+              "description": "The need class this gate answers, e.g. browser.",
+              "type": "string",
+              "minLength": 1
+            },
+            "env": {
+              "description": "The declared env[] entry that receives the chosen provider's name.",
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            },
+            "providers": {
+              "description": "The provider names this tool accepts for this gate.",
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "name"],
+          "properties": {
+            "kind": { "const": "runtime" },
+            "name": {
+              "description": "The runtime this tool needs installed, e.g. docker.",
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "policy"],
+          "properties": {
+            "kind": { "const": "network" },
+            "policy": {
+              "description": "The network policy this tool needs in effect, e.g. privacy-vpn.",
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "tool"],
+          "properties": {
+            "kind": { "const": "service" },
+            "tool": {
+              "description": "An admitted tool whose live probe must be up (or idle). A launcher checks it before launching and refuses when it is not.",
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]*$"
+            },
+            "action": {
+              "description": "Which of that tool's actions meets this need.",
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            }
+          }
+        }
+      ]
+    },
+    "input": {
+      "description": "One named per-run input a tool accepts.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "description": "The input's name; substituted as a {name} token in launch.command, launch.args and launch.cwd.",
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "description": "Human-readable label shown when prompting for this input.",
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "description": "The input's value kind. An open string in this version.",
+          "type": "string",
+          "minLength": 1
+        },
+        "required": {
+          "description": "true = the mission/launch cannot proceed without this input resolving to a value.",
+          "type": "boolean",
+          "default": false
+        },
+        "sensitive": {
+          "description": "true = the value must never be written to a durable run row or logged.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  }
+}

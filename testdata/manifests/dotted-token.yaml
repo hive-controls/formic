@@ -1,4 +1,4 @@
-toolspec: 1
+formic: 1
 name: dotted-token
 launch:
   command: sample

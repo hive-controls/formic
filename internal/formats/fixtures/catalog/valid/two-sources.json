@@ -1,0 +1,7 @@
+{
+  "catalog": 1,
+  "sources": [
+    { "kind": "dir", "path": "C:/devprojects/Tooling" },
+    { "kind": "dir", "path": "C:/devprojects/osint-suite" }
+  ]
+}

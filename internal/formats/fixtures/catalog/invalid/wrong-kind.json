@@ -1,0 +1,4 @@
+{
+  "catalog": 1,
+  "sources": [{ "kind": "git", "path": "C:/devprojects/Tooling" }]
+}

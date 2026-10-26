@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/hive-controls/formic/main/schema/manifest.schema.json",
+  "formic": 1,
+  "name": "phone-lookup",
+  "launch": {
+    "command": "phone-lookup",
+    "args": ["{spec}"]
+  },
+  "needs": [
+    { "kind": "secret", "name": "NUMVERIFY_API_KEY" },
+    {
+      "kind": "gate",
+      "class": "browser",
+      "env": "E2E_DOCTOR_GATE",
+      "providers": ["solari", "local", "cdp"]
+    },
+    { "kind": "runtime", "name": "docker" },
+    { "kind": "network", "policy": "privacy-vpn" }
+  ],
+  "inputs": [
+    {
+      "name": "spec",
+      "label": "Spec file",
+      "kind": "text",
+      "required": true,
+      "sensitive": false
+    }
+  ]
+}

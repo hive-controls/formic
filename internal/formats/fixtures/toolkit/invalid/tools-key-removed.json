@@ -1,0 +1,5 @@
+{
+  "toolkit": 1,
+  "name": "osint-suite",
+  "tools": ".formic/tools/*.yaml"
+}

@@ -1,0 +1,10 @@
+{
+  "toolkit": 1,
+  "name": "osint-suite",
+  "title": "OSINT Suite",
+  "conventions": { "caseFolder": "{case}/" },
+  "needs": [
+    { "kind": "runtime", "name": "docker" },
+    { "kind": "network", "policy": "privacy-vpn" }
+  ]
+}

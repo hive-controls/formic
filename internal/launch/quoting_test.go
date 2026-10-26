@@ -116,7 +116,7 @@ func TestAppleScriptQuotingSurvivesOsascript(t *testing.T) {
 	if _, err := exec.LookPath("osascript"); err != nil {
 		t.Skip("osascript is not on PATH")
 	}
-	command := shellCommand("/repo with space", append([]string{"hivedeck", "run"}, riskyArguments...))
+	command := shellCommand("/repo with space", append([]string{"formic", "__replay-row"}, riskyArguments...))
 	// The same strconv.Quote call terminalScript and iTermScript make.
 	output, err := exec.Command("osascript", "-e", "return "+strconv.Quote(command)).Output()
 	if err != nil {
@@ -136,7 +136,7 @@ func TestAppleScriptQuotingSurvivesOsascript(t *testing.T) {
 // `new tab` must name a window — without `in <window>` it fails with AppleScript error -1708
 // when the application has none.
 func TestGhosttyScriptTargetsATabAndFallsBackToAWindow(t *testing.T) {
-	script := ghosttyScript("/repo with space", []string{"hivedeck", "run", "quote's"})
+	script := ghosttyScript("/repo with space", []string{"formic", "__replay-row", "quote's"})
 	for _, want := range []string{
 		`tell application "Ghostty"`,
 		"new surface configuration",
@@ -150,7 +150,7 @@ func TestGhosttyScriptTargetsATabAndFallsBackToAWindow(t *testing.T) {
 		}
 	}
 	// The command must be handed to a shell, as one quoted argument, using the shared helper.
-	wantCommand := "/bin/sh -c " + quoteShellArgument(shellCommand("/repo with space", []string{"hivedeck", "run", "quote's"}))
+	wantCommand := "/bin/sh -c " + quoteShellArgument(shellCommand("/repo with space", []string{"formic", "__replay-row", "quote's"}))
 	if !strings.Contains(script, strconv.Quote(wantCommand)) {
 		t.Fatalf("ghosttyScript does not run the command through a shell with the shared quoting:\n%s", script)
 	}
@@ -159,7 +159,7 @@ func TestGhosttyScriptTargetsATabAndFallsBackToAWindow(t *testing.T) {
 // TestOsascriptRoutesEmbedTheQuotedCommand pins BOTH osascript routes to the same helper, so a
 // future edit cannot quietly give one of them its own quoting.
 func TestOsascriptRoutesEmbedTheQuotedCommand(t *testing.T) {
-	wrapper := []string{"hivedeck", "run", "quote's and spaces"}
+	wrapper := []string{"formic", "__replay-row", "quote's and spaces"}
 	expected := strconv.Quote(shellCommand("/repo with space", wrapper))
 	for name, script := range map[string]string{
 		"terminal-app": terminalScript("/repo with space", wrapper),

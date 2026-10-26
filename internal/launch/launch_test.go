@@ -1,20 +1,21 @@
 package launch
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
-	toolspec "github.com/hive-controls/toolspec"
-
-	"github.com/hive-controls/hivedeck/internal/discovery"
-	"github.com/hive-controls/hivedeck/internal/profile"
-	"github.com/hive-controls/hivedeck/internal/runs"
+	"github.com/hive-controls/formic/internal/discovery"
+	"github.com/hive-controls/formic/internal/formats"
+	"github.com/hive-controls/formic/internal/profile"
+	"github.com/hive-controls/formic/internal/runs"
+	"github.com/hive-controls/formic/internal/testfixture"
 )
 
 func TestDetectTerminalUsesTheOrderedEnvironmentTable(t *testing.T) {
@@ -27,6 +28,9 @@ func TestDetectTerminalUsesTheOrderedEnvironmentTable(t *testing.T) {
 		{"Windows Terminal", []string{"WT_SESSION=session"}, TerminalWindows},
 		{"kitty", []string{"KITTY_WINDOW_ID=1"}, TerminalKitty},
 		{"WezTerm", []string{"WEZTERM_PANE=1"}, TerminalWezTerm},
+		{"cmux wins over the Ghostty variables it inherits", []string{"CMUX_BUNDLE_ID=com.cmuxterm.app", "GHOSTTY_SURFACE_ID=0xabc", "TERM_PROGRAM=ghostty"}, TerminalCmux},
+		{"cmux alone", []string{"CMUX_BUNDLE_ID=com.cmuxterm.app"}, TerminalCmux},
+		{"tmux still wraps cmux", []string{"TMUX=/tmp/tmux", "CMUX_BUNDLE_ID=com.cmuxterm.app"}, TerminalTmux},
 		{"Ghostty by surface id", []string{"GHOSTTY_SURFACE_ID=0xabc", "TERM_PROGRAM=ghostty"}, TerminalGhostty},
 		{"Ghostty by TERM_PROGRAM alone", []string{"TERM_PROGRAM=ghostty"}, TerminalGhostty},
 		{"iTerm2", []string{"TERM_PROGRAM=iTerm.app"}, TerminalITerm},
@@ -47,6 +51,27 @@ func TestDetectTerminalUsesTheOrderedEnvironmentTable(t *testing.T) {
 	}
 }
 
+// TestProbeTerminalReportsWindowsTerminalWhenItCannotBeResolved is the pre-flight half of the
+// wt.exe PATH gap: ProbeTerminal must catch an unresolvable Windows Terminal BEFORE a run row
+// is ever created, so the tabFallback path in ui/actions.go degrades to the foreground before
+// launch rather than after a spawn failure. probeWindowsTerminalExecutable is swapped rather
+// than relying on whatever Windows Terminal happens to be installed on the machine running the
+// test, so this is deterministic on every platform.
+func TestProbeTerminalReportsWindowsTerminalWhenItCannotBeResolved(t *testing.T) {
+	original := probeWindowsTerminalExecutable
+	t.Cleanup(func() { probeWindowsTerminalExecutable = original })
+
+	probeWindowsTerminalExecutable = func() error { return errors.New("not found") }
+	if err := ProbeTerminal(TerminalWindows); err == nil {
+		t.Fatal("ProbeTerminal(TerminalWindows) should report the failure before launch")
+	}
+
+	probeWindowsTerminalExecutable = func() error { return nil }
+	if err := ProbeTerminal(TerminalWindows); err != nil {
+		t.Fatalf("ProbeTerminal(TerminalWindows) = %v, want nil once it resolves", err)
+	}
+}
+
 // TestNewTabCommandBuildsEverySpawnForm asserts the FULL argv, cwd handling, and environment
 // handling for every terminal row in §7.2 — not just the executable basename. Every row must
 // inherit the ambient environment (command.Env == nil) rather than being forced to the
@@ -54,7 +79,7 @@ func TestDetectTerminalUsesTheOrderedEnvironmentTable(t *testing.T) {
 // environment travels (§ launch: new-tab environment).
 func TestNewTabCommandBuildsEverySpawnForm(t *testing.T) {
 	row := runs.Row{ID: "run-1", Cwd: "/repo"}
-	wrapperArgv := []string{"/bin/hivedeck", "run", "/state/runs/run-1/run.json"}
+	wrapperArgv := []string{"/bin/formic", "__replay-row", "/state/runs/run-1/run.json"}
 	argvCases := map[Terminal][]string{
 		TerminalTmux:    append([]string{"tmux", "new-window", "-c", "/repo", "--"}, wrapperArgv...),
 		TerminalWindows: append([]string{"wt.exe", "-w", "0", "nt", "-d", "/repo"}, wrapperArgv...),
@@ -104,6 +129,79 @@ func TestNewTabCommandBuildsEverySpawnForm(t *testing.T) {
 	}
 }
 
+func TestNewTabCommandBuildsTheCmuxWorkspaceForm(t *testing.T) {
+	t.Setenv("CMUX_BUNDLED_CLI_PATH", "/Applications/cmux.app/Contents/Resources/bin/cmux")
+	row := runs.Row{ID: "run-1", Cwd: "/repo with space"}
+	wrapperArgv := []string{"/bin/formic", "__replay-row", "/state/it's/run.json"}
+	command, err := NewTabCommand(TerminalCmux, row, wrapperArgv)
+	if err != nil {
+		t.Fatalf("NewTabCommand(cmux) returned an error: %v", err)
+	}
+	want := []string{"/Applications/cmux.app/Contents/Resources/bin/cmux", "workspace", "create", "--name", "formic",
+		"--cwd", "/repo with space", "--command", `'/bin/formic' '__replay-row' '/state/it'"'"'s/run.json'`, "--focus", "false"}
+	if !reflect.DeepEqual(command.Args, want) {
+		t.Fatalf("NewTabCommand(cmux) argv = %v, want %v", command.Args, want)
+	}
+	if command.Env != nil {
+		t.Fatalf("NewTabCommand(cmux) env = %v, want nil", command.Env)
+	}
+}
+
+func TestResolveCmuxExecutablePrefersTheBundledCLIThenPath(t *testing.T) {
+	lookPath := func(name string) (string, error) { return "/usr/local/bin/" + name, nil }
+	missing := func(string) (string, error) { return "", errors.New("not found") }
+	if got, err := resolveCmuxExecutable(func(string) string { return "/bundled/cmux" }, missing); err != nil || got != "/bundled/cmux" {
+		t.Fatalf("bundled = %q, %v; want /bundled/cmux", got, err)
+	}
+	if got, err := resolveCmuxExecutable(func(string) string { return "" }, lookPath); err != nil || got != "/usr/local/bin/cmux" {
+		t.Fatalf("PATH = %q, %v; want /usr/local/bin/cmux", got, err)
+	}
+	if _, err := resolveCmuxExecutable(func(string) string { return "" }, missing); err == nil {
+		t.Fatal("neither bundled CLI nor PATH should be an error")
+	}
+}
+
+// TestSplitCommandBuildsEverySpawnFormAndRefusesTheRest is N7's split-route counterpart to
+// TestNewTabCommandBuildsEverySpawnForm: only tmux and Windows Terminal have a split-pane
+// command, and HasSplitCommand must agree with SplitCommand's own switch for every terminal —
+// a caller that only calls HasSplitCommand before choosing whether to try SplitCommand at all
+// must never disagree with what SplitCommand itself would do.
+func TestSplitCommandBuildsEverySpawnFormAndRefusesTheRest(t *testing.T) {
+	wrapperArgv := []string{"/bin/formic", "__replay-row", "/state/runs/run-1/run.json"}
+	argvCases := map[Terminal][]string{
+		TerminalTmux:    append([]string{"tmux", "split-window", "-c", "/repo", "--"}, wrapperArgv...),
+		TerminalWindows: append([]string{"wt.exe", "-w", "0", "sp", "-d", "/repo"}, wrapperArgv...),
+	}
+	for terminal, wantArgv := range argvCases {
+		t.Run(string(terminal), func(t *testing.T) {
+			if !HasSplitCommand(terminal) {
+				t.Fatalf("HasSplitCommand(%s) = false, want true", terminal)
+			}
+			command, err := SplitCommand(terminal, "/repo", wrapperArgv)
+			if err != nil {
+				t.Fatalf("SplitCommand(%s) returned an error: %v", terminal, err)
+			}
+			if !reflect.DeepEqual(command.Args, wantArgv) {
+				t.Fatalf("SplitCommand(%s) argv = %v, want %v", terminal, command.Args, wantArgv)
+			}
+			if command.Env != nil {
+				t.Fatalf("SplitCommand(%s) env = %v, want nil (inherit the ambient environment, never the child's)", terminal, command.Env)
+			}
+		})
+	}
+
+	for _, terminal := range []Terminal{TerminalKitty, TerminalWezTerm, TerminalCmux, TerminalGhostty, TerminalITerm, TerminalApple, TerminalGNOME} {
+		t.Run(string(terminal)+"-unsupported", func(t *testing.T) {
+			if HasSplitCommand(terminal) {
+				t.Fatalf("HasSplitCommand(%s) = true, want false", terminal)
+			}
+			if _, err := SplitCommand(terminal, "/repo", wrapperArgv); err == nil {
+				t.Fatalf("SplitCommand(%s) should refuse — no split command exists, tabs only (§11)", terminal)
+			}
+		})
+	}
+}
+
 func TestShellCommandQuotesSpacesQuotesAndNewlines(t *testing.T) {
 	arguments := []string{"tool", "with space", "quote's", "line\nbreak"}
 	command := shellCommand("/repo with space", arguments)
@@ -139,13 +237,16 @@ func TestArtifactCommandUsesPlatformHandlerAndResolvesRelativePath(t *testing.T)
 // run's cwd.
 func TestArtifactCommandClassifiesEveryArtifactShape(t *testing.T) {
 	row := runs.Row{ID: "run-1", Cwd: "/repo"}
+	// "Absolute" is the host's notion — ArtifactCommand's goos argument only picks the opener —
+	// so the absolute case is built by the host's rules rather than written as a POSIX literal.
+	absoluteArtifact := filepath.Join(t.TempDir(), "evidence", "index.html")
 	cases := []struct {
 		name     string
 		artifact string
 		want     string
 	}{
 		{"relative path is joined beneath cwd", "evidence/index.html", filepath.Join("/repo", "evidence", "index.html")},
-		{"absolute path is left alone", "/tmp/evidence/index.html", "/tmp/evidence/index.html"},
+		{"absolute path is left alone", absoluteArtifact, absoluteArtifact},
 		{"http url is a URL", "http://example.com/evidence", "http://example.com/evidence"},
 		{"https url is a URL", "https://example.com/evidence", "https://example.com/evidence"},
 		{"uppercase scheme is still a URL", "HTTPS://example.com/evidence", "HTTPS://example.com/evidence"},
@@ -178,7 +279,7 @@ func TestForegroundLaunchWritesStatusAndRecordsEachExitCode(t *testing.T) {
 	}{{0, "ok", "ok"}, {7, "failed", "failed"}, {3, "needs-human", "needs-human"}} {
 		t.Run(testCase.event, func(t *testing.T) {
 			store := runs.Store{StateDirectory: t.TempDir()}
-			tool := foregroundFixtureTool(repositoryRoot, testCase.exitCode, testCase.event)
+			tool := foregroundFixtureTool(t, testCase.exitCode, testCase.event)
 			prepared, err := Prepare(Request{
 				Tool: tool, RepositoryRoot: repositoryRoot, Store: store,
 				Environment: os.Environ(), StartedAt: time.Unix(100, 0),
@@ -201,13 +302,14 @@ func TestForegroundLaunchWritesStatusAndRecordsEachExitCode(t *testing.T) {
 	}
 }
 
-func foregroundFixtureTool(repositoryRoot string, exitCode int, event string) discovery.Tool {
+func foregroundFixtureTool(t *testing.T, exitCode int, event string) discovery.Tool {
+	t.Helper()
 	repositoryToken := "{repo}"
 	return discovery.Tool{
 		Name: "fixture", Title: "Fixture",
-		Manifest: toolspec.ToolManifest{Launch: toolspec.ToolManifestLaunch{
-			Command: "/bin/sh", Cwd: &repositoryToken,
-			Args: []string{filepath.Join(repositoryRoot, "testdata", "foreground.sh"), strconv.Itoa(exitCode), event},
+		Manifest: formats.ToolManifest{Launch: formats.ToolManifestLaunch{
+			Command: testfixture.Tool(t), Cwd: &repositoryToken,
+			Args: []string{"fixture:status", strconv.Itoa(exitCode), event},
 		}},
 	}
 }
@@ -218,8 +320,8 @@ func TestTabWrapperReceivesPersistedRowEnvironmentEvenWhenItsOwnEnvironmentIsDro
 		t.Fatal(err)
 	}
 	store := runs.Store{StateDirectory: t.TempDir()}
-	tool := discovery.Tool{Name: "fixture", Manifest: toolspec.ToolManifest{Launch: toolspec.ToolManifestLaunch{
-		Command: "/bin/sh", Args: []string{filepath.Join(repositoryRoot, "testdata", "print-env.sh"), "PROFILE_VAR"},
+	tool := discovery.Tool{Name: "fixture", Manifest: formats.ToolManifest{Launch: formats.ToolManifestLaunch{
+		Command: testfixture.Tool(t), Args: []string{"fixture:print-env", "PROFILE_VAR"},
 	}}}
 	repositoryProfile := profile.File{Tools: map[string]profile.Tool{"fixture": {Env: map[string]string{"PROFILE_VAR": "from-profile"}}}}
 	prepared, err := Prepare(Request{
@@ -243,87 +345,6 @@ func TestTabWrapperReceivesPersistedRowEnvironmentEvenWhenItsOwnEnvironmentIsDro
 	}
 }
 
-func TestWrapperRecordsFailedOutcomeWithSignalExitCodeInsteadOfLeavingRunningForever(t *testing.T) {
-	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := runs.Store{StateDirectory: t.TempDir()}
-	row, err := store.Begin("fixture", profile.ModeTab, repositoryRoot, []string{"sleep", "5"}, os.Environ(), time.Unix(100, 0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	rowPath := store.RowPath(row.ID)
-	type outcome struct {
-		exitCode int
-		err      error
-	}
-	results := make(chan outcome, 1)
-	go func() {
-		exitCode, err := RunWrapper(rowPath, func() time.Time { return time.Unix(200, 0) })
-		results <- outcome{exitCode, err}
-	}()
-	time.Sleep(200 * time.Millisecond)
-	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case result := <-results:
-		if result.err != nil {
-			t.Fatal(result.err)
-		}
-		if result.exitCode != 130 {
-			t.Fatalf("wrapper exit code = %d, want 130 (128+SIGINT)", result.exitCode)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("wrapper never returned after SIGINT — it is not forwarding/waiting on the signal")
-	}
-	completed, err := store.Load(row.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if completed.Outcome != "failed" || completed.ExitCode == nil || *completed.ExitCode != 130 {
-		t.Fatalf("completed row = %+v, want failed with exit 130, never running", completed)
-	}
-}
-
-// TestWrapperKeepsSignalTrapArmedThroughTheHandbackWindow targets the gap between the child
-// exiting and Finish persisting the row: a signal delivered there must never kill the wrapper
-// before the row is saved. finishedAt is invoked by RunWrapper exactly once, as the argument
-// to Finish — i.e. exactly in that window, after the child has already exited cleanly — so
-// sending the signal from inside it hits the window deterministically.
-func TestWrapperKeepsSignalTrapArmedThroughTheHandbackWindow(t *testing.T) {
-	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := runs.Store{StateDirectory: t.TempDir()}
-	row, err := store.Begin("fixture", profile.ModeTab, repositoryRoot, []string{"true"}, os.Environ(), time.Unix(100, 0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	rowPath := store.RowPath(row.ID)
-	exitCode, err := RunWrapper(rowPath, func() time.Time {
-		if killErr := syscall.Kill(os.Getpid(), syscall.SIGINT); killErr != nil {
-			t.Fatal(killErr)
-		}
-		return time.Unix(200, 0)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if exitCode != 0 {
-		t.Fatalf("wrapper exit = %d, want 0 (the child already exited cleanly before the signal in the handback window)", exitCode)
-	}
-	completed, err := store.Load(row.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if completed.ExitCode == nil || *completed.ExitCode != 0 || completed.Outcome != "ok" {
-		t.Fatalf("completed row = %+v, want the child's real exit 0/ok — a signal in the handback window must not lose the row", completed)
-	}
-}
-
 func TestPrepareMakesARelativeManifestCwdAbsoluteAgainstTheRepositoryRootForForeground(t *testing.T) {
 	repositoryRoot := t.TempDir()
 	nestedInvocationDirectory := filepath.Join(repositoryRoot, "usecases", "nested")
@@ -336,8 +357,8 @@ func TestPrepareMakesARelativeManifestCwdAbsoluteAgainstTheRepositoryRootForFore
 	withWorkingDirectory(t, nestedInvocationDirectory)
 
 	relativeCwd := "scripts"
-	tool := discovery.Tool{Name: "fixture", Manifest: toolspec.ToolManifest{Launch: toolspec.ToolManifestLaunch{
-		Command: "/bin/pwd", Cwd: &relativeCwd,
+	tool := discovery.Tool{Name: "fixture", Manifest: formats.ToolManifest{Launch: formats.ToolManifestLaunch{
+		Command: testfixture.Tool(t), Args: []string{"fixture:pwd"}, Cwd: &relativeCwd,
 	}}}
 	prepared, err := Prepare(Request{
 		Tool: tool, RepositoryRoot: repositoryRoot, Store: runs.Store{StateDirectory: t.TempDir()},
@@ -375,8 +396,8 @@ func TestPrepareMakesARelativeManifestCwdAbsoluteAgainstTheRepositoryRootForTheT
 
 	store := runs.Store{StateDirectory: t.TempDir()}
 	relativeCwd := "scripts"
-	tool := discovery.Tool{Name: "fixture", Manifest: toolspec.ToolManifest{Launch: toolspec.ToolManifestLaunch{
-		Command: "/bin/pwd", Cwd: &relativeCwd,
+	tool := discovery.Tool{Name: "fixture", Manifest: formats.ToolManifest{Launch: formats.ToolManifestLaunch{
+		Command: testfixture.Tool(t), Args: []string{"fixture:pwd"}, Cwd: &relativeCwd,
 	}}}
 	prepared, err := Prepare(Request{
 		Tool: tool, RepositoryRoot: repositoryRoot, Store: store,
@@ -415,13 +436,13 @@ func TestPrepareMakesARelativeManifestCwdAbsoluteAgainstTheRepositoryRootForTheT
 }
 
 // TestWrapperFindsItsRowWhenTheStateDirWasConfiguredRelative models the real failure: a
-// relative HIVEDECK_STATE_DIR left unresolved would produce a relative row path, embedded in
+// relative FORMIC_STATE_DIR left unresolved would produce a relative row path, embedded in
 // the wrapper's argv; a wrapper started fresh in the TOOL's own cwd (as every real tab-route
 // spawn is) would then look for that relative path under the wrong directory entirely.
 func TestWrapperFindsItsRowWhenTheStateDirWasConfiguredRelative(t *testing.T) {
 	invocationDirectory := t.TempDir()
 	withWorkingDirectory(t, invocationDirectory)
-	t.Setenv("HIVEDECK_STATE_DIR", "relative-state")
+	t.Setenv("FORMIC_STATE_DIR", "relative-state")
 
 	store, err := runs.DefaultStore()
 	if err != nil {
@@ -432,8 +453,12 @@ func TestWrapperFindsItsRowWhenTheStateDirWasConfiguredRelative(t *testing.T) {
 	}
 
 	toolCwd := t.TempDir() // somewhere else entirely — never the invocation directory
-	row, err := store.Begin("fixture", profile.ModeTab, toolCwd, []string{"true"}, os.Environ(), time.Unix(100, 0))
+	argv := []string{testfixture.Tool(t), "fixture:exit", "0"}
+	row, err := store.Begin("fixture", profile.ModeTab, toolCwd, argv, nil, time.Unix(100, 0))
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteReplay(row.ID, argv, toolCwd, os.Environ()); err != nil {
 		t.Fatal(err)
 	}
 	rowPath := store.RowPath(row.ID)
@@ -467,15 +492,12 @@ func withWorkingDirectory(t *testing.T, directory string) {
 
 func TestPrepareResolvesTheExecutableAgainstTheProfilePath(t *testing.T) {
 	toolDirectory := t.TempDir()
-	scriptPath := filepath.Join(toolDirectory, "hivedeck-fixture-tool")
-	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testfixture.InstallAs(t, toolDirectory, "hivedeck-fixture-tool")
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
-	tool := discovery.Tool{Name: "fixture", Manifest: toolspec.ToolManifest{Launch: toolspec.ToolManifestLaunch{
+	tool := discovery.Tool{Name: "fixture", Manifest: formats.ToolManifest{Launch: formats.ToolManifestLaunch{
 		Command: "hivedeck-fixture-tool",
 	}}}
 	// The tool is reachable ONLY via the profile's PATH addition, never via the ambient
@@ -504,7 +526,7 @@ func TestExecutableLookupNeverFallsBackToTheAmbientPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tool := discovery.Tool{Name: "fixture", Manifest: toolspec.ToolManifest{Launch: toolspec.ToolManifestLaunch{
+	tool := discovery.Tool{Name: "fixture", Manifest: formats.ToolManifest{Launch: formats.ToolManifestLaunch{
 		Command: "sh",
 	}}}
 	repositoryProfile := profile.File{Tools: map[string]profile.Tool{"fixture": {
@@ -522,17 +544,15 @@ func TestExecutableLookupNeverFallsBackToTheAmbientPath(t *testing.T) {
 	}
 }
 
-// TestPrepareScopesEnvironmentToDeclaredKeysAndPathWhenTheManifestDeclaresEnv is toolspec
-// v1.1's launch-time contract (§ hivedeck consumes toolspec v1.1): a manifest that declares
+// TestPrepareScopesEnvironmentToDeclaredKeysAndPathWhenTheManifestDeclaresEnv is the manifest
+// format's v1.1 launch-time contract: a manifest that declares
 // `env[]` gets exactly those keys, plus PATH — never the ambient variable it did not declare.
 func TestPrepareScopesEnvironmentToDeclaredKeysAndPathWhenTheManifestDeclaresEnv(t *testing.T) {
 	toolDirectory := t.TempDir()
-	if err := os.WriteFile(filepath.Join(toolDirectory, "tool"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	tool := discovery.Tool{Name: "fixture", Manifest: toolspec.ToolManifest{
-		Launch: toolspec.ToolManifestLaunch{Command: "tool"},
-		Env:    []toolspec.ToolManifestEnvElem{{Name: "DECLARED_VAR"}},
+	testfixture.InstallAs(t, toolDirectory, "tool")
+	tool := discovery.Tool{Name: "fixture", Manifest: formats.ToolManifest{
+		Launch: formats.ToolManifestLaunch{Command: "tool"},
+		Env:    []formats.ToolManifestEnvElem{{Name: "DECLARED_VAR"}},
 	}}
 	prepared, err := Prepare(Request{
 		Tool: tool, RepositoryRoot: "/repo",
@@ -561,9 +581,9 @@ func TestPrepareScopesEnvironmentToDeclaredKeysAndPathWhenTheManifestDeclaresEnv
 // contract: a `required` declared key that never resolves to a value must refuse the launch
 // with a clear, named message, rather than starting the child and letting it fail on its own.
 func TestPrepareRefusesLaunchWhenARequiredDeclaredEnvKeyHasNoValue(t *testing.T) {
-	tool := discovery.Tool{Name: "fixture", Manifest: toolspec.ToolManifest{
-		Launch: toolspec.ToolManifestLaunch{Command: "/bin/true"},
-		Env:    []toolspec.ToolManifestEnvElem{{Name: "REQUIRED_VAR", Required: true}},
+	tool := discovery.Tool{Name: "fixture", Manifest: formats.ToolManifest{
+		Launch: formats.ToolManifestLaunch{Command: "/bin/true"},
+		Env:    []formats.ToolManifestEnvElem{{Name: "REQUIRED_VAR", Required: true}},
 	}}
 	_, err := Prepare(Request{
 		Tool: tool, RepositoryRoot: "/repo", Store: runs.Store{StateDirectory: t.TempDir()},
@@ -577,13 +597,71 @@ func TestPrepareRefusesLaunchWhenARequiredDeclaredEnvKeyHasNoValue(t *testing.T)
 	}
 }
 
+// TestScopeDeclaredEnvironmentPassesThroughFixedWindowsVariables is the Windows passthrough
+// table test: each fixed passthrough name survives scoping when
+// set and is absent when unset, and an undeclared, non-passthrough variable is still
+// stripped — the manifest's env[].name pattern is never widened to carry these.
+func TestScopeDeclaredEnvironmentPassesThroughFixedWindowsVariables(t *testing.T) {
+	for _, name := range windowsPassthroughVariables {
+		name := name
+		t.Run(name+"/passes through when set", func(t *testing.T) {
+			scoped, err := scopeDeclaredEnvironment(nil, []string{"PATH=/usr/bin", name + "=fixture-value"}, runtime.GOOS)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !containsEnvEntry(scoped, name, "fixture-value") {
+				t.Fatalf("scoped = %v, want %s passed through with its value", scoped, name)
+			}
+		})
+		t.Run(name+"/absent when unset", func(t *testing.T) {
+			scoped, err := scopeDeclaredEnvironment(nil, []string{"PATH=/usr/bin"}, runtime.GOOS)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if containsEnvKey(scoped, name) {
+				t.Fatalf("scoped = %v, want %s absent (never set upstream)", scoped, name)
+			}
+		})
+	}
+	t.Run("undeclared non-passthrough variable is still stripped", func(t *testing.T) {
+		scoped, err := scopeDeclaredEnvironment(nil, []string{"PATH=/usr/bin", "UNDECLARED_VAR=must-not-leak"}, runtime.GOOS)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if containsEnvKey(scoped, "UNDECLARED_VAR") {
+			t.Fatalf("scoped = %v, want UNDECLARED_VAR stripped (not declared, not a fixed passthrough)", scoped)
+		}
+	})
+}
+
+func containsEnvEntry(environment []string, name, value string) bool {
+	return containsEnvKeyValue(environment, name+"="+value)
+}
+
+func containsEnvKeyValue(environment []string, entry string) bool {
+	for _, candidate := range environment {
+		if candidate == entry {
+			return true
+		}
+	}
+	return false
+}
+
+func containsEnvKey(environment []string, name string) bool {
+	prefix := name + "="
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestPrepareUsesProfileSpecArgumentsAndEnvironment(t *testing.T) {
 	toolDirectory := t.TempDir()
-	if err := os.WriteFile(filepath.Join(toolDirectory, "tool"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testfixture.InstallAs(t, toolDirectory, "tool")
 	repositoryToken := "{repo}"
-	tool := discovery.Tool{Name: "fixture", Manifest: toolspec.ToolManifest{Launch: toolspec.ToolManifestLaunch{
+	tool := discovery.Tool{Name: "fixture", Manifest: formats.ToolManifest{Launch: formats.ToolManifestLaunch{
 		Command: "tool", Cwd: &repositoryToken, Args: []string{"{spec}"},
 	}}}
 	repositoryProfile := profile.File{Tools: map[string]profile.Tool{"fixture": {
@@ -611,9 +689,9 @@ func TestPrepareUsesProfileSpecArgumentsAndEnvironment(t *testing.T) {
 func TestPrepareRefusesAPaneForAToolThatNeedsARealTerminal(t *testing.T) {
 	interactive := true
 	store := runs.Store{StateDirectory: t.TempDir()}
-	tool := discovery.Tool{Name: "psql-console", Manifest: toolspec.ToolManifest{
-		Launch: toolspec.ToolManifestLaunch{Command: "/bin/sh"},
-		Pane:   &toolspec.ToolManifestPane{Interactive: &interactive},
+	tool := discovery.Tool{Name: "psql-console", Manifest: formats.ToolManifest{
+		Launch: formats.ToolManifestLaunch{Command: testfixture.Tool(t)},
+		Pane:   &formats.ToolManifestPane{Interactive: &interactive},
 	}}
 	request := Request{
 		Tool: tool, RepositoryRoot: t.TempDir(), Store: store,
@@ -652,16 +730,15 @@ func TestRunWrapperShowsAStatusStreamWhileTheChildIsStillRunning(t *testing.T) {
 	}
 	store := runs.Store{StateDirectory: t.TempDir()}
 	gatePath := filepath.Join(t.TempDir(), "release")
-	script := filepath.Join(repositoryRoot, "testdata", "status-stream.sh")
-	row, err := store.Begin("watcher", profile.ModeTab, repositoryRoot,
-		[]string{"/bin/sh", script, gatePath}, os.Environ(), time.Unix(100, 0))
+	argv := []string{testfixture.Tool(t), "fixture:status-stream", gatePath}
+	row, err := store.Begin("watcher", profile.ModeTab, repositoryRoot, argv, nil, time.Unix(100, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The status-file variable is what a real launch puts on the row in Prepare; the row is
-	// the only place the wrapper reads the child's environment from.
-	row.Env = setEnvironment(row.Env, "HIVEDECK_STATUS_FILE", store.StatusFile(row.ID))
-	if err := store.Save(row); err != nil {
+	// The status-file variable is what a real launch puts on the child's environment; N10
+	// moved the wrapper's read from the row (redacted) to the ephemeral replay file.
+	environment := setEnvironment(os.Environ(), "FORMIC_STATUS_FILE", store.StatusFile(row.ID))
+	if err := store.WriteReplay(row.ID, argv, repositoryRoot, environment); err != nil {
 		t.Fatal(err)
 	}
 
@@ -696,6 +773,34 @@ func TestRunWrapperShowsAStatusStreamWhileTheChildIsStillRunning(t *testing.T) {
 	}
 }
 
+// TestResolveExecutableTreatsAnyPathFormAsAPathNotABareName proves a manifest command written
+// with a forward slash, the OS path separator, or a Windows drive prefix (e.g.
+// `C:/tools/x.exe`) must be used as given, never searched on PATH as if it were a bare
+// executable name. The four forms are expected to resolve identically on every GOOS — the
+// forward-slash and drive-prefix checks are OS-independent by design, so this table's
+// expectations do not actually diverge, but they are still keyed by runtime.GOOS so a genuinely
+// platform-specific regression would be caught rather than silently assumed away on Linux CI.
+func TestResolveExecutableTreatsAnyPathFormAsAPathNotABareName(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+	}{
+		{"forward-slash drive path", "C:/tools/x.exe"},
+		{"backslash drive path", `C:\tools\x.exe`},
+		{"relative dot-slash path", "./x"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name+" GOOS="+runtime.GOOS, func(t *testing.T) {
+			if !looksLikePath(testCase.input) {
+				t.Fatalf("looksLikePath(%q) = false, want true (GOOS=%s)", testCase.input, runtime.GOOS)
+			}
+		})
+	}
+	if looksLikePath("x") {
+		t.Fatalf("looksLikePath(%q) = true, want false: a bare name must still be searched on PATH", "x")
+	}
+}
+
 func waitForOutcome(t *testing.T, store runs.Store, runID, wanted string) runs.Row {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
@@ -708,4 +813,52 @@ func waitForOutcome(t *testing.T, store runs.Store, runID, wanted string) runs.R
 	}
 	t.Fatalf("run %s never reached outcome %q", runID, wanted)
 	return runs.Row{}
+}
+
+// TestScopeDeclaredEnvironmentFoldsCaseOnWindowsOnly: a Windows process carries `Path`, not
+// `PATH`; scoping must keep it (under the canonical name) or buildCommand's lookup finds nothing.
+func TestScopeDeclaredEnvironmentFoldsCaseOnWindowsOnly(t *testing.T) {
+	declared := []formats.ToolManifestEnvElem{{Name: "DECLARED_VAR"}}
+	resolved := []string{"Path=C:/tools", "SYSTEMROOT=C:/Windows", "Declared_Var=kept"}
+	t.Run("windows keeps mixed-case PATH, passthrough and declared names", func(t *testing.T) {
+		scoped, err := scopeDeclaredEnvironment(declared, resolved, "windows")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range [][2]string{{"PATH", "C:/tools"}, {"SystemRoot", "C:/Windows"}, {"DECLARED_VAR", "kept"}} {
+			if !containsEnvEntry(scoped, want[0], want[1]) {
+				t.Fatalf("scoped = %v, want %s=%s", scoped, want[0], want[1])
+			}
+		}
+	})
+	t.Run("linux stays exact-case", func(t *testing.T) {
+		scoped, err := scopeDeclaredEnvironment(declared, resolved, "linux")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(scoped) != 0 {
+			t.Fatalf("scoped = %v, want nothing kept for non-matching case off Windows", scoped)
+		}
+	})
+}
+
+// TestPrepareResolvesBareCommandWhenWindowsEnvironmentCarriesMixedCasePath is the end-to-end
+// shape of the bug: a declared env plus a mixed-case Path used to lose PATH entirely.
+func TestPrepareResolvesBareCommandWhenWindowsEnvironmentCarriesMixedCasePath(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("mixed-case Path is a Windows environment shape")
+	}
+	toolDirectory := t.TempDir()
+	testfixture.InstallAs(t, toolDirectory, "tool")
+	tool := discovery.Tool{Name: "fixture", Manifest: formats.ToolManifest{
+		Launch: formats.ToolManifestLaunch{Command: "tool"},
+		Env:    []formats.ToolManifestEnvElem{{Name: "DECLARED_VAR"}},
+	}}
+	_, err := Prepare(Request{
+		Tool: tool, RepositoryRoot: "/repo", Store: runs.Store{StateDirectory: t.TempDir()},
+		Environment: []string{"Path=" + toolDirectory, "DECLARED_VAR=x"}, StartedAt: time.Unix(100, 0),
+	}, profile.ModeForeground)
+	if err != nil {
+		t.Fatalf("Prepare with Path=<dir> and a declared env: %v", err)
+	}
 }

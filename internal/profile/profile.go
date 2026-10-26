@@ -21,7 +21,11 @@ type LaunchMode string
 const (
 	ModeForeground LaunchMode = "foreground"
 	ModeTab        LaunchMode = "tab"
+	ModeSplit      LaunchMode = "split"
 	ModePane       LaunchMode = "pane"
+	// ModeCaptured is recorded on a run row only (the deck's captured-result route); it is
+	// never a configurable mode, so validMode does not accept it.
+	ModeCaptured LaunchMode = "captured"
 )
 
 type Default struct {
@@ -34,6 +38,57 @@ type Tool struct {
 	Args       []string          `yaml:"args,omitempty"`
 	Env        map[string]string `yaml:"env,omitempty"`
 	APIKeyFrom string            `yaml:"apiKeyFrom,omitempty"`
+	// Actions holds per-action stored arguments; Args keeps meaning the implicit action's.
+	Actions map[string]ActionSettings `yaml:"actions,omitempty"`
+}
+
+// ActionSettings is one action's stored settings.
+type ActionSettings struct {
+	Args []string `yaml:"args,omitempty"`
+}
+
+// ArgsFor returns the stored arguments for action; "" is the implicit action (Args).
+func (tool Tool) ArgsFor(action string) []string {
+	if action == "" {
+		return tool.Args
+	}
+	return tool.Actions[action].Args
+}
+
+// WithActionArgs returns a copy of tool with action's stored arguments replaced. It never
+// writes into the receiver's Actions map (copy-on-write): that map is shared with the
+// File's baseline, and an in-place write would make syncTool see "no change". Empty args
+// delete the action's entry; an empty map becomes nil.
+func (tool Tool) WithActionArgs(action string, args []string) Tool {
+	if action == "" {
+		tool.Args = args
+		return tool
+	}
+	updated := cloneActions(tool.Actions)
+	if updated == nil {
+		updated = make(map[string]ActionSettings)
+	}
+	if len(args) == 0 {
+		delete(updated, action)
+	} else {
+		updated[action] = ActionSettings{Args: append([]string(nil), args...)}
+	}
+	if len(updated) == 0 {
+		updated = nil
+	}
+	tool.Actions = updated
+	return tool
+}
+
+func cloneActions(source map[string]ActionSettings) map[string]ActionSettings {
+	if source == nil {
+		return nil
+	}
+	clone := make(map[string]ActionSettings, len(source))
+	for name, settings := range source {
+		clone[name] = ActionSettings{Args: append([]string(nil), settings.Args...)}
+	}
+	return clone
 }
 
 type File struct {
@@ -54,7 +109,7 @@ func (validationError *ValidationError) Error() string {
 }
 
 func Path(repositoryRoot string) string {
-	return filepath.Join(repositoryRoot, ".hivedeck", FileName)
+	return filepath.Join(repositoryRoot, ".formic", FileName)
 }
 
 func Load(repositoryRoot string) (File, error) {
@@ -127,7 +182,9 @@ func (file *File) Save(repositoryRoot string) error {
 // it, silently leaving an intervening save's value (tab) on disk.
 func (file *File) commitBaseline() {
 	for name := range file.dirtyTools {
-		file.original[name] = file.Tools[name]
+		baseline := file.Tools[name]
+		baseline.Actions = cloneActions(baseline.Actions)
+		file.original[name] = baseline
 	}
 	file.dirtyTools = make(map[string]bool)
 }
@@ -267,7 +324,7 @@ func validateTool(name string, node *yaml.Node) []string {
 	if node.Kind != yaml.MappingNode {
 		return []string{prefix + " must be a mapping"}
 	}
-	known := map[string]bool{"mode": true, "spec": true, "args": true, "env": true, "apiKeyFrom": true}
+	known := map[string]bool{"mode": true, "spec": true, "args": true, "env": true, "apiKeyFrom": true, "actions": true}
 	problems := unknownKeys(node, known, prefix)
 	if mode := mappingValue(node, "mode"); mode != nil {
 		problems = append(problems, validateMode(prefix+".mode", mode)...)
@@ -278,6 +335,33 @@ func validateTool(name string, node *yaml.Node) []string {
 	problems = append(problems, validateArguments(prefix, mappingValue(node, "args"))...)
 	problems = append(problems, validateEnvironment(prefix, mappingValue(node, "env"))...)
 	problems = append(problems, validateReference(prefix+".apiKeyFrom", mappingValue(node, "apiKeyFrom"))...)
+	problems = append(problems, validateActions(prefix, mappingValue(node, "actions"))...)
+	return problems
+}
+
+var actionNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
+func validateActions(prefix string, node *yaml.Node) []string {
+	if node == nil {
+		return nil
+	}
+	if node.Kind != yaml.MappingNode {
+		return []string{prefix + ".actions must be a mapping of action name to settings"}
+	}
+	var problems []string
+	for index := 0; index < len(node.Content); index += 2 {
+		name, value := node.Content[index].Value, node.Content[index+1]
+		actionPrefix := fmt.Sprintf("%s.actions.%s", prefix, name)
+		if !actionNamePattern.MatchString(name) {
+			problems = append(problems, fmt.Sprintf("%s.actions: action name %q must match %s", prefix, name, actionNamePattern))
+		}
+		if value.Kind != yaml.MappingNode {
+			problems = append(problems, actionPrefix+" must be a mapping")
+			continue
+		}
+		problems = append(problems, unknownKeys(value, map[string]bool{"args": true}, actionPrefix)...)
+		problems = append(problems, validateArguments(actionPrefix, mappingValue(value, "args"))...)
+	}
 	return problems
 }
 
@@ -299,7 +383,7 @@ func unknownKeys(node *yaml.Node, known map[string]bool, prefix string) []string
 
 func validateMode(path string, node *yaml.Node) []string {
 	if node.Kind != yaml.ScalarNode || !validMode(LaunchMode(node.Value)) {
-		return []string{fmt.Sprintf("%s must be foreground, tab, or pane", path)}
+		return []string{fmt.Sprintf("%s must be foreground, tab, split, or pane", path)}
 	}
 	return nil
 }
@@ -353,7 +437,7 @@ func validateReference(path string, node *yaml.Node) []string {
 }
 
 func validMode(mode LaunchMode) bool {
-	return mode == ModeForeground || mode == ModeTab || mode == ModePane
+	return mode == ModeForeground || mode == ModeTab || mode == ModeSplit || mode == ModePane
 }
 
 func secretShaped(name string) bool {
@@ -419,6 +503,7 @@ func (file File) Clone() File {
 func cloneTools(source map[string]Tool) map[string]Tool {
 	clone := make(map[string]Tool, len(source))
 	for name, tool := range source {
+		tool.Actions = cloneActions(tool.Actions)
 		clone[name] = tool
 	}
 	return clone
@@ -471,6 +556,9 @@ func syncTool(document *yaml.Node, name string, original, updated Tool) {
 	}
 	if !reflect.DeepEqual(original.Args, updated.Args) {
 		setEncodedValue(tool, "args", updated.Args)
+	}
+	if !reflect.DeepEqual(original.Actions, updated.Actions) {
+		setEncodedValue(tool, "actions", updated.Actions)
 	}
 	if !reflect.DeepEqual(original.Env, updated.Env) {
 		setEncodedValue(tool, "env", updated.Env)

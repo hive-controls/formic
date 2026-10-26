@@ -25,7 +25,7 @@ tools:
 		t.Fatalf("Parse error = %v, want ValidationError", err)
 	}
 	for _, expected := range []string{
-		"default.mode must be foreground, tab, or pane",
+		"default.mode must be foreground, tab, split, or pane",
 		`default: unknown key "surprise"`,
 		"use apiKeyFrom: env.NAME instead of apiKey",
 		"use tokenFrom: env.NAME instead of token",
@@ -64,6 +64,7 @@ func TestResolveModeUsesTheRequiredPrecedence(t *testing.T) {
 		{"per-tool", File{Default: Default{Mode: ModeTab}, Tools: map[string]Tool{"checks": {Mode: ModePane}}}, "checks", false, ModePane},
 		{"manifest constraint", File{Tools: map[string]Tool{"checks": {Mode: ModePane}}}, "checks", true, ModeForeground},
 		{"manifest permits tab", File{Tools: map[string]Tool{"checks": {Mode: ModeTab}}}, "checks", true, ModeTab},
+		{"manifest permits split", File{Tools: map[string]Tool{"checks": {Mode: ModeSplit}}}, "checks", true, ModeSplit},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -184,5 +185,114 @@ func TestSaveAdvancesTheBaselineSoARoundTripLandsOnDisk(t *testing.T) {
 	}
 	if !strings.Contains(string(written), "mode: foreground") {
 		t.Fatalf("second save did not land on disk — still shows the intermediate value:\n%s", written)
+	}
+}
+
+// TestLoadIgnoresTheOldHivedeckFolder proves the hard cutover (§17 car 4, N6): a profile file
+// sitting at the pre-cutover `.hivedeck/profile.yaml` path is never read — Load falls back to
+// an empty File, exactly as it would with no profile at all. Only `.formic/profile.yaml` (Path)
+// is read now.
+func TestLoadIgnoresTheOldHivedeckFolder(t *testing.T) {
+	repositoryRoot := t.TempDir()
+	oldPath := filepath.Join(repositoryRoot, ".hivedeck", "profile.yaml")
+	if err := os.MkdirAll(filepath.Dir(oldPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldPath, []byte("tools:\n  checks:\n    mode: tab\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	file, err := Load(repositoryRoot)
+	if err != nil {
+		t.Fatalf("Load returned an error: %v", err)
+	}
+	if len(file.Tools) != 0 {
+		t.Fatalf("Load should not have read the old .hivedeck/profile.yaml; got tools: %+v", file.Tools)
+	}
+}
+
+const actionProfile = "tools:\n  docker-desktop:\n    mode: tab\n    args: [--base]\n    actions:\n      restart:\n        args: [--timeout, \"300\"]\n"
+
+func TestParseReadsPerActionArguments(t *testing.T) {
+	file, err := Parse([]byte(actionProfile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := file.Tools["docker-desktop"]
+	if got := tool.ArgsFor("restart"); len(got) != 2 || got[0] != "--timeout" || got[1] != "300" {
+		t.Fatalf("ArgsFor(restart) = %v", got)
+	}
+	if got := tool.ArgsFor(""); len(got) != 1 || got[0] != "--base" {
+		t.Fatalf("ArgsFor(\"\") = %v, want the implicit action's args", got)
+	}
+	if got := tool.ArgsFor("stop"); got != nil {
+		t.Fatalf("ArgsFor(stop) = %v, want nil", got)
+	}
+}
+
+func TestParseRefusesMalformedActionSettings(t *testing.T) {
+	cases := map[string]string{
+		"tools:\n  x:\n    actions: [a]\n":                           "tool \"x\".actions must be a mapping",
+		"tools:\n  x:\n    actions:\n      Bad_Name: {}\n":           "action name \"Bad_Name\"",
+		"tools:\n  x:\n    actions:\n      go:\n        mode: tab\n": `unknown key "mode"`,
+		"tools:\n  x:\n    actions:\n      go:\n        args: [1]\n": "args[0] must be a string",
+		"tools:\n  x:\n    actions:\n      go: []\n":                 "must be a mapping",
+	}
+	for input, want := range cases {
+		_, err := Parse([]byte(input))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Parse(%q) error = %v, want %q", input, err, want)
+		}
+	}
+}
+
+func TestCloneIsolatesPerActionArgumentsAndSaveWritesTheChange(t *testing.T) {
+	repositoryRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Dir(Path(repositoryRoot)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(Path(repositoryRoot), []byte(actionProfile), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	original, err := Load(repositoryRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := original.Clone()
+	candidate.SetTool("docker-desktop", candidate.Tools["docker-desktop"].WithActionArgs("restart", []string{"--timeout", "30"}))
+	if got := original.Tools["docker-desktop"].ArgsFor("restart"); got[1] != "300" {
+		t.Fatalf("clone edit leaked into the original: %v", got)
+	}
+	if err := candidate.Save(repositoryRoot); err != nil {
+		t.Fatal(err)
+	}
+	written, err := os.ReadFile(Path(repositoryRoot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(written), "30") {
+		t.Fatalf("saved profile lost the per-action change:\n%s", written)
+	}
+	reloaded, err := Load(repositoryRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Tools["docker-desktop"].ArgsFor("restart"); got[1] != "30" {
+		t.Fatalf("reloaded restart args = %v, want the saved change", got)
+	}
+}
+
+func TestWithActionArgsIsCopyOnWriteAndEmptyDeletes(t *testing.T) {
+	base := Tool{Actions: map[string]ActionSettings{"restart": {Args: []string{"a"}}}}
+	changed := base.WithActionArgs("restart", []string{"b"})
+	if base.Actions["restart"].Args[0] != "a" {
+		t.Fatal("WithActionArgs mutated the receiver's map")
+	}
+	cleared := changed.WithActionArgs("restart", nil)
+	if cleared.Actions != nil {
+		t.Fatalf("clearing the only action left %v, want a nil map", cleared.Actions)
+	}
+	if got := base.WithActionArgs("", []string{"x"}).Args; len(got) != 1 || got[0] != "x" {
+		t.Fatalf("implicit action args = %v", got)
 	}
 }

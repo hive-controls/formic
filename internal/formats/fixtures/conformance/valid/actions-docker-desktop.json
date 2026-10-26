@@ -1,0 +1,54 @@
+{
+  "formic": 1,
+  "name": "docker-desktop",
+  "title": "Docker Desktop",
+  "description": "The Docker Desktop engine (WSL2 backend) that LibreChat runs on. start waits synchronously for the engine; stop and restart interrupt every running container, LibreChat included.",
+  "launch": {
+    "command": "docker",
+    "args": ["desktop"]
+  },
+  "needs": [
+    {
+      "kind": "runtime",
+      "name": "docker"
+    }
+  ],
+  "health": {
+    "check": ["docker", "desktop", "version"]
+  },
+  "live": {
+    "probe": {
+      "command": ["docker", "info"],
+      "timeout": "5s"
+    }
+  },
+  "actions": [
+    {
+      "name": "start",
+      "args": ["start", "--timeout", "120"],
+      "whenUp": "skip",
+      "exit": {
+        "0": "engine up (WSL2 backend ready)",
+        "1": "engine did not come up within 120 s, or Docker Desktop is not installed"
+      }
+    },
+    {
+      "name": "stop",
+      "args": ["stop"],
+      "confirm": "Stops EVERY running container, LibreChat included.",
+      "exit": {
+        "0": "Docker Desktop stopped",
+        "1": "stop failed, or Docker Desktop is not installed"
+      }
+    },
+    {
+      "name": "restart",
+      "args": ["restart", "--timeout", "180"],
+      "confirm": "Interrupts every running container.",
+      "exit": {
+        "0": "engine restarted and up (WSL2 backend ready)",
+        "1": "engine did not come back within 180 s, or Docker Desktop is not installed"
+      }
+    }
+  ]
+}

@@ -1,7 +1,0 @@
-{
-  "toolspec": 1,
-  "name": "hello-world",
-  "launch": {
-    "command": "npx"
-  }
-}

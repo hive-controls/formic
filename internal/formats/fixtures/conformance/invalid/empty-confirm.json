@@ -1,0 +1,13 @@
+{
+  "formic": 1,
+  "name": "sample",
+  "launch": {
+    "command": "sample"
+  },
+  "actions": [
+    {
+      "name": "stop",
+      "confirm": ""
+    }
+  ]
+}

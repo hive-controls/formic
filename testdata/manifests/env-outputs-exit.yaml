@@ -1,7 +1,7 @@
-toolspec: 1
+formic: 1
 name: fixture-with-declared-env
 title: Fixture With Declared Env
-description: Exercises toolspec v1.1's env, outputs, and exit fields.
+description: Exercises the manifest format's v1.1 env, outputs, and exit fields.
 launch:
   command: fixture-tool
   cwd: "{repo}"

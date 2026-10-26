@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hive-controls/formic/main/schema/equip.schema.json",
+  "title": "Equip",
+  "description": "The machine's record of how needs are met: references only, never secret values.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["equip"],
+  "properties": {
+    "$schema": {
+      "description": "Optional reference to this schema, for editor validation. Ignored by the launcher.",
+      "type": "string"
+    },
+    "equip": {
+      "description": "Equip file schema version. v1 is the only version this schema accepts.",
+      "type": "integer",
+      "const": 1
+    },
+    "secrets": {
+      "description": "Map of a need's secret name to a reference. env.NAME is the implemented form; keychain:NAME and file:<path>#key are reserved — accepted by this schema, not yet resolved by the launcher — and must round-trip here rather than be rejected as unknown.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^(env\\.[A-Z][A-Z0-9_]*|keychain:[^\\s]+|file:[^\\s#]+#[^\\s#]+)$"
+      }
+    },
+    "providers": {
+      "description": "Map of \"<need kind>.<class>\" (e.g. gate.browser) to the chosen provider name.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

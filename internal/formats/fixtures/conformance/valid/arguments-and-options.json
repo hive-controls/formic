@@ -1,0 +1,32 @@
+{
+  "formic": 1,
+  "name": "recipe-with-arguments",
+  "launch": {
+    "command": "node",
+    "args": ["cli.mjs", "run"]
+  },
+  "env": [
+    {
+      "name": "RECIPE_GATE",
+      "description": "Which backend the run goes through.",
+      "options": [
+        { "value": "local", "description": "headless Chromium" },
+        { "value": "remote" }
+      ]
+    }
+  ],
+  "arguments": [
+    {
+      "flag": "--mode",
+      "description": "How the run behaves.",
+      "kind": "choice",
+      "options": [
+        { "value": "fast", "description": "skip the slow checks" },
+        { "value": "full" }
+      ],
+      "default": "full"
+    },
+    { "flag": "--app", "kind": "value", "description": "Directory to host." },
+    { "flag": "--write", "kind": "flag" }
+  ]
+}

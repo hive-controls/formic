@@ -1,0 +1,6 @@
+{
+  "formic": 1,
+  "name": "sample",
+  "launch": { "command": "sample" },
+  "needs": [{ "kind": "secret" }]
+}

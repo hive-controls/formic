@@ -1,0 +1,7 @@
+{
+  "mission": 1,
+  "name": "heal-checkout",
+  "inputs": ["spec"],
+  "steps": [{ "tool": "e2e-doctor", "with": { "spec": "{spec}" } }],
+  "evidence": "evidence/"
+}

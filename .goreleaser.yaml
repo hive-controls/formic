@@ -1,15 +1,14 @@
 version: 2
 
-project_name: hivedeck
+project_name: formic
 
 before:
   hooks:
-    # go.mod carries a replace directive to the vendored toolspec module
-    # (./packages/toolspec/go) — download resolves it before the build.
+    # Pre-warms the module cache before the build.
     - go mod download
 
 builds:
-  - main: ./cmd/hivedeck
+  - main: ./cmd/formic
     env:
       - CGO_ENABLED=0
     goos:
@@ -48,16 +47,16 @@ release:
   replace_existing_artifacts: true
 
 brews:
-  - name: hivedeck
+  - name: formic
     repository:
       owner: hive-controls
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: https://github.com/hive-controls/hivedeck
-    description: hivedeck is a terminal launcher and monitor for the tools that live in a repository.
+    homepage: https://github.com/hive-controls/formic
+    description: formic is a terminal launcher and monitor for the tools that live in a repository.
     license: MIT
     install: |
-      bin.install "hivedeck"
+      bin.install "formic"
     test: |
-      system "#{bin}/hivedeck", "version"
+      system "#{bin}/formic", "version"

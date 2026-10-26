@@ -1,0 +1,7 @@
+formic: 1
+name: sample-product
+title: Sample Product
+description: A shipped product manifest fixture, discovered like any other built-in adapter.
+launch:
+  command: sample-product-cmd
+  cwd: "{repo}"

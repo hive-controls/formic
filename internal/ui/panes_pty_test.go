@@ -13,12 +13,12 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	toolspec "github.com/hive-controls/toolspec"
 
-	"github.com/hive-controls/hivedeck/internal/discovery"
-	"github.com/hive-controls/hivedeck/internal/pane"
-	"github.com/hive-controls/hivedeck/internal/profile"
-	"github.com/hive-controls/hivedeck/internal/runs"
+	"github.com/hive-controls/formic/internal/discovery"
+	"github.com/hive-controls/formic/internal/formats"
+	"github.com/hive-controls/formic/internal/pane"
+	"github.com/hive-controls/formic/internal/profile"
+	"github.com/hive-controls/formic/internal/runs"
 )
 
 func TestPaneModeCapturesTheChildAndRecordsThePaneRoute(t *testing.T) {
@@ -88,7 +88,7 @@ func paneLaunchModel(t *testing.T, store runs.Store, command string, arguments .
 	t.Helper()
 	tool := discovery.Tool{
 		Name: "watcher", Title: "Watcher",
-		Manifest: toolspec.ToolManifest{Launch: toolspec.ToolManifestLaunch{Command: command, Args: arguments}},
+		Manifest: formats.ToolManifest{Launch: formats.ToolManifestLaunch{Command: command, Args: arguments}},
 	}
 	model := launchModel(t, store, tool)
 	model.repositoryProfile.Tools = map[string]profile.Tool{"watcher": {Mode: profile.ModePane}}

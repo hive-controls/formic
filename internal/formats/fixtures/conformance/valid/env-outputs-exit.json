@@ -1,0 +1,30 @@
+{
+  "formic": 1,
+  "name": "recipe-with-env",
+  "title": "Recipe with declared env",
+  "launch": {
+    "command": "npx",
+    "args": ["recipe-cli", "run"]
+  },
+  "env": [
+    {
+      "name": "RECIPE_API_KEY",
+      "description": "Bearer token for the recipe's backend API.",
+      "secret": true,
+      "required": true
+    },
+    {
+      "name": "RECIPE_EVIDENCE_DIR",
+      "description": "Where the recipe writes its evidence bundle.",
+      "default": "evidence"
+    }
+  ],
+  "outputs": {
+    "evidenceDir": "RECIPE_EVIDENCE_DIR"
+  },
+  "exit": {
+    "0": "passed",
+    "1": "needs-human",
+    "2": "harness could not start"
+  }
+}

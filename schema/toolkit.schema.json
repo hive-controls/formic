@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hive-controls/formic/main/schema/toolkit.schema.json",
+  "title": "Toolkit",
+  "description": "A toolkit descriptor: what a catalogued source carries at its root so it may be admitted at all.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["toolkit", "name"],
+  "properties": {
+    "$schema": {
+      "description": "Optional reference to this schema, for editor validation. Ignored by the launcher.",
+      "type": "string"
+    },
+    "toolkit": {
+      "description": "Toolkit descriptor schema version. v1 is the only version this schema accepts.",
+      "type": "integer",
+      "const": 1
+    },
+    "name": {
+      "description": "Stable machine-readable toolkit identifier.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "title": {
+      "description": "Human-readable display name for the toolkit.",
+      "type": "string",
+      "minLength": 1
+    },
+    "conventions": {
+      "description": "Conventions the toolkit's tools share.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "caseFolder": {
+          "description": "Placeholder-bearing path pattern for where a tool under this toolkit keeps its case data, e.g. \"{case}/\".",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "needs": {
+      "description": "Needs shared by every tool under this toolkit; a tool's own needs entry of the same kind overrides one inherited here.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/toolkitNeed" }
+    }
+  },
+  "$defs": {
+    "toolkitNeed": {
+      "description": "One thing a tool requires before it can run. Same shape as the tool manifest's own need.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "name"],
+          "properties": {
+            "kind": { "const": "secret" },
+            "name": {
+              "description": "The secret's name, as recorded in the machine's equip file.",
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "class", "env", "providers"],
+          "properties": {
+            "kind": { "const": "gate" },
+            "class": {
+              "description": "The need class this gate answers, e.g. browser.",
+              "type": "string",
+              "minLength": 1
+            },
+            "env": {
+              "description": "The declared env[] entry that receives the chosen provider's name.",
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            },
+            "providers": {
+              "description": "The provider names this tool accepts for this gate.",
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "name"],
+          "properties": {
+            "kind": { "const": "runtime" },
+            "name": {
+              "description": "The runtime this tool needs installed, e.g. docker.",
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "policy"],
+          "properties": {
+            "kind": { "const": "network" },
+            "policy": {
+              "description": "The network policy this tool needs in effect, e.g. privacy-vpn.",
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "tool"],
+          "properties": {
+            "kind": { "const": "service" },
+            "tool": {
+              "description": "An admitted tool whose live probe must be up (or idle). A launcher checks it before launching and refuses when it is not.",
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]*$"
+            },
+            "action": {
+              "description": "Which of that tool's actions meets this need.",
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

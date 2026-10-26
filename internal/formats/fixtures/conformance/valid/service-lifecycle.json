@@ -1,0 +1,12 @@
+{
+  "formic": 1,
+  "name": "service-lifecycle",
+  "launch": { "command": "sample" },
+  "lifecycle": "service",
+  "live": {
+    "probe": { "tcp": "127.0.0.1:8090", "timeout": "500ms" },
+    "whenUp": "skip",
+    "ready": { "within": "2m" }
+  },
+  "needs": [{ "kind": "service", "tool": "sample-db" }]
+}

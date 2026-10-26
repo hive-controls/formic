@@ -1,0 +1,7 @@
+formic: 1
+name: unknown-token-action
+launch:
+  command: tool
+actions:
+  - name: start
+    args: ["{nope}"]

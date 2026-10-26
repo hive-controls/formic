@@ -1,12 +1,12 @@
 {
-  "name": "hivedeck",
-  "version": "0.1.2",
+  "name": "formic",
+  "version": "0.3.0",
   "private": true,
   "description": "A terminal deck for discovering, configuring, launching, and watching repository tools.",
   "license": "MIT",
-  "repository": "github:hive-controls/hivedeck",
+  "repository": "github:hive-controls/formic",
   "scripts": {
-    "build": "GOFLAGS=-mod=readonly GOTOOLCHAIN=local go build ./cmd/hivedeck",
+    "build": "GOFLAGS=-mod=readonly GOTOOLCHAIN=local go build ./cmd/formic",
     "test": "GOFLAGS=-mod=readonly GOTOOLCHAIN=local go vet ./... && GOFLAGS=-mod=readonly GOTOOLCHAIN=local go test -count=1 ./...",
     "lint": "GOFLAGS=-mod=readonly GOTOOLCHAIN=local go vet ./..."
   }

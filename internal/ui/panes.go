@@ -8,9 +8,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/hive-controls/hivedeck/internal/launch"
-	"github.com/hive-controls/hivedeck/internal/pane"
-	"github.com/hive-controls/hivedeck/internal/runs"
+	"github.com/hive-controls/formic/internal/launch"
+	"github.com/hive-controls/formic/internal/pane"
+	"github.com/hive-controls/formic/internal/runs"
 )
 
 // paneRenderInterval is the pane host's whole rate limit. Child output is read continuously
@@ -124,7 +124,7 @@ func (model Model) pollLiveRuns() Model {
 		}
 	}
 	if changed || model.showRuns {
-		model.refreshRuns()
+		model.reloadRuns()
 	}
 	return model
 }
@@ -143,8 +143,11 @@ func (model Model) handlePaneFinished(message paneFinishedMsg) Model {
 	if model.notice == stoppingNotice(finished.Title) {
 		model.notice = ""
 	}
-	if _, err := launch.Finish(model.runStore, message.runID, finished.WaitError(), model.clock()); err != nil {
+	row, err := launch.Finish(model.runStore, message.runID, finished.WaitError(), model.clock())
+	if err != nil {
 		model.notice = err.Error()
+	} else {
+		model.openReadyWindowAfterExit(row)
 	}
 	model.refreshRuns()
 	return model

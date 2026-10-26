@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hive-controls/formic/main/schema/mission.schema.json",
+  "title": "Mission",
+  "description": "A saved, named launch: one tool, its inputs, and an evidence folder. v1 allows exactly one step; sequences are deferred.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mission", "name", "steps", "evidence"],
+  "properties": {
+    "$schema": {
+      "description": "Optional reference to this schema, for editor validation. Ignored by the launcher.",
+      "type": "string"
+    },
+    "mission": {
+      "description": "Mission schema version. v1 is the only version this schema accepts.",
+      "type": "integer",
+      "const": 1
+    },
+    "name": {
+      "description": "Stable machine-readable mission identifier.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "inputs": {
+      "description": "Names of the mission-level inputs a launch must resolve, e.g. [spec].",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "steps": {
+      "description": "The tool launch(es) inside this mission. v1 allows exactly one; the list shape stays forward-compatible with multi-step sequences.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tool"],
+        "properties": {
+          "tool": {
+            "description": "The catalogued tool's name this step launches.",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "with": {
+            "description": "Values for the tool's declared inputs[], by name.",
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      }
+    },
+    "evidence": {
+      "description": "Path this mission's evidence folder resolves to, one folder per run.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

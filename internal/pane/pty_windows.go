@@ -11,6 +11,10 @@ import (
 // platform: StartSession refuses before a process exists.
 var terminateSignal os.Signal = os.Interrupt
 
+// CanHostPane reports whether this build can capture a tool on a real pseudo-terminal — see
+// pty_unix.go's counterpart. False here, matching startOnPseudoTerminal's own refusal below.
+func CanHostPane() bool { return false }
+
 // Whether a captured pane can be hosted on this platform is UNVERIFIED — it has not been
 // exercised, so this build refuses rather than claiming a capability nobody has run. The
 // other two launch routes are unaffected.

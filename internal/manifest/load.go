@@ -7,22 +7,22 @@ import (
 	"path/filepath"
 	"strings"
 
-	toolspec "github.com/hive-controls/toolspec"
+	"github.com/hive-controls/formic/internal/formats"
 	"gopkg.in/yaml.v3"
 )
 
 // UnsupportedManifestVersionPrefix names the state §5/§11 Q2 require for a manifest whose
-// `toolspec` version this consumer does not know: a distinct, named state (never a generic
+// `formic` version this consumer does not know: a distinct, named state (never a generic
 // schema-violation message, and never silently skipped) that both LoadFile and the UI
 // recognize.
 const UnsupportedManifestVersionPrefix = "unsupported manifest version"
 
-// supportedToolspecVersion is the only `toolspec` value this consumer accepts, per §11 Q2:
+// supportedFormicVersion is the only `formic` value this consumer accepts, per §11 Q2:
 // a consumer must accept every version it knows and never guess one from field presence.
-const supportedToolspecVersion = 1
+const supportedFormicVersion = 1
 
 type Loaded struct {
-	Manifest    toolspec.ToolManifest
+	Manifest    formats.ToolManifest
 	SourcePath  string
 	Name        string
 	Title       string
@@ -55,7 +55,7 @@ func LoadFile(path, repositoryRoot string) Loaded {
 		loaded.Problem = err
 		return loaded
 	}
-	if err := toolspec.Validate(jsonData); err != nil {
+	if err := formats.Validate(jsonData); err != nil {
 		loaded.Problem = err
 		return loaded
 	}
@@ -63,14 +63,70 @@ func LoadFile(path, repositoryRoot string) Loaded {
 		loaded.Problem = fmt.Errorf("decode manifest: %w", err)
 		return loaded
 	}
-	if _, err := ResolveLaunch(loaded.Manifest, repositoryRoot, "{spec}"); err != nil {
+	if err := checkDeclaredArguments(loaded.Manifest.Arguments); err != nil {
+		loaded.Problem = err
+		return loaded
+	}
+	if _, err := ResolveLaunch(loaded.Manifest, repositoryRoot, "{spec}", placeholderInputValues(loaded.Manifest.Inputs)); err != nil {
+		loaded.Problem = err
+		return loaded
+	}
+	if err := checkActions(loaded.Manifest, repositoryRoot); err != nil {
 		loaded.Problem = err
 	}
 	return loaded
 }
 
-func ResolveLaunch(tool toolspec.ToolManifest, repositoryRoot, spec string) (ResolvedLaunch, error) {
+// checkDeclaredArguments returns the first semantic problem in a list of declared arguments that
+// the schema cannot express: a choice with no options, a default outside its options, or a flag
+// declared twice (the argument parser needs each flag to match exactly one row). It takes a plain
+// list so any caller holding a merged set of arguments can run the same check.
+func checkDeclaredArguments(arguments []formats.Argument) error {
+	firstIndexByFlag := make(map[string]int, len(arguments))
+	for index, argument := range arguments {
+		if earlier, seen := firstIndexByFlag[argument.Flag]; seen {
+			return fmt.Errorf("arguments[%d] (%s): flag is already declared by arguments[%d]", index, argument.Flag, earlier)
+		}
+		firstIndexByFlag[argument.Flag] = index
+		if argument.Kind == formats.ArgumentKindChoice && len(argument.Options) == 0 {
+			return fmt.Errorf("arguments[%d] (%s): kind choice needs at least one option", index, argument.Flag)
+		}
+		if argument.Default != nil && len(argument.Options) > 0 && !optionsContain(argument.Options, *argument.Default) {
+			return fmt.Errorf("arguments[%d] (%s): default %q is not among its options", index, argument.Flag, *argument.Default)
+		}
+	}
+	return nil
+}
+
+func optionsContain(options []formats.Option, value string) bool {
+	for _, option := range options {
+		if option.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
+// placeholderInputValues gives LoadFile's validation-only ResolveLaunch call a value for every
+// declared input — the same "{name}" placeholder pattern the call already uses for spec — so a
+// manifest whose launch.args/cwd reference a declared input's token loads cleanly without a real
+// value being available yet (real values are only known per-launch, via resolveInputsForLaunch).
+func placeholderInputValues(declared []formats.Input) map[string]string {
+	values := make(map[string]string, len(declared))
+	for _, input := range declared {
+		values[input.Name] = "{" + input.Name + "}"
+	}
+	return values
+}
+
+// ResolveLaunch substitutes launch.command/args/cwd's "{name}" tokens against repo, spec, and
+// every declared input's resolved value (inputs, per N10 — never launch.env; env is resolved
+// separately, by name, with no token substitution at all).
+func ResolveLaunch(tool formats.ToolManifest, repositoryRoot, spec string, inputs map[string]string) (ResolvedLaunch, error) {
 	values := map[string]string{"repo": repositoryRoot, "spec": spec}
+	for name, value := range inputs {
+		values[name] = value
+	}
 	command, err := substituteTokens(tool.Launch.Command, values)
 	if err != nil {
 		return ResolvedLaunch{}, fmt.Errorf("launch.command: %w", err)
@@ -96,11 +152,11 @@ func ResolveLaunch(tool toolspec.ToolManifest, repositoryRoot, spec string) (Res
 // `pane.interactive` needs a real terminal, so capturing it in a pane is illegal whatever a
 // profile asks for. It is defined here, once, so the resolver that degrades the mode and the
 // launch seam that refuses the route can never disagree about which tools it covers.
-func RequiresRealTerminal(tool toolspec.ToolManifest) bool {
+func RequiresRealTerminal(tool formats.ToolManifest) bool {
 	return tool.Pane != nil && tool.Pane.Interactive != nil && *tool.Pane.Interactive
 }
 
-func RequiresSpec(tool toolspec.ToolManifest) bool {
+func RequiresSpec(tool formats.ToolManifest) bool {
 	if strings.Contains(tool.Launch.Command, "{spec}") {
 		return true
 	}
@@ -163,21 +219,21 @@ func substituteTokens(value string, values map[string]string) (string, error) {
 	return result.String(), firstError
 }
 
-// unsupportedVersionProblem intercepts a wrong `toolspec` value BEFORE schema validation,
+// unsupportedVersionProblem intercepts a wrong `formic` value BEFORE schema validation,
 // so the resulting Problem names the state ("unsupported manifest version") instead of
-// surfacing the schema's opaque `const` mismatch. A missing or non-numeric `toolspec` falls
+// surfacing the schema's opaque `const` mismatch. A missing or non-numeric `formic` falls
 // through unreported here — the schema's "required"/"type" errors already cover those.
 func unsupportedVersionProblem(jsonData []byte) error {
 	var probe struct {
-		Toolspec *float64 `json:"toolspec"`
+		Formic *float64 `json:"formic"`
 	}
-	if err := json.Unmarshal(jsonData, &probe); err != nil || probe.Toolspec == nil {
+	if err := json.Unmarshal(jsonData, &probe); err != nil || probe.Formic == nil {
 		return nil
 	}
-	if *probe.Toolspec == float64(supportedToolspecVersion) {
+	if *probe.Formic == float64(supportedFormicVersion) {
 		return nil
 	}
-	return fmt.Errorf("%s: %v", UnsupportedManifestVersionPrefix, *probe.Toolspec)
+	return fmt.Errorf("%s: %v", UnsupportedManifestVersionPrefix, *probe.Formic)
 }
 
 // IsUnsupportedManifestVersion reports whether a Loaded.Problem (or a discovery.Tool's

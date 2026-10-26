@@ -1,0 +1,35 @@
+formic: 1
+name: llama-swap
+title: llama-swap (model router on :8090)
+description: The llama-swap proxy — one OpenAI-compatible URL on :8090; the request's model field picks the lane and triggers the load/swap. start runs it in the foreground with the same flags as start-llama-swap.ps1 (skipped when the logon copy already answers); stop unloads every lane then clears the :8090 listener, whoever started it; tui opens the lanes/loaded view with load, unload, reload and a per-lane log stream.
+launch:
+  command: C:/devprojects/llama-swap/llama-swap.exe
+  args: [--config, C:/devprojects/llama-swap/config.yaml]
+  cwd: C:/devprojects/llama-swap
+env:
+  - name: LLAMA_SWAP_URL
+    description: Base URL of the running llama-swap proxy (used by the tui action)
+    default: "http://127.0.0.1:8090"
+config:
+  files:
+    - "C:/devprojects/llama-swap/config.yaml"
+    - "data/llama-swap.config.yaml"
+live: { probe: { http: "http://127.0.0.1:8090/health" } }
+actions:
+  - name: start
+    args: [--listen, "0.0.0.0:8090", --watch-config]
+    lifecycle: service
+    whenUp: skip
+  - name: stop
+    command: node
+    args: [scripts/stop-llama-swap.mjs]
+    cwd: "{repo}"
+    confirm: "Stops the router on :8090, including a copy formic did not start."
+    exit: { "0": cleared or nothing was listening, "1": listener still up after kill }
+  - name: tui
+    title: Open the llama-swap TUI
+    command: node
+    args: [tools/llama-swap-tui.mjs]
+    cwd: "{repo}"
+    interactive: true
+    exit: { "0": quit normally, "1": llama-swap unreachable (non-TTY mode) }

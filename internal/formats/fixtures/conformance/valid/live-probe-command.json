@@ -1,0 +1,6 @@
+{
+  "formic": 1,
+  "name": "probe-command",
+  "launch": { "command": "sample" },
+  "live": { "probe": { "command": ["sample", "status"], "idleExit": 3 } }
+}

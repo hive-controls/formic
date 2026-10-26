@@ -1,0 +1,13 @@
+{
+  "formic": 1,
+  "name": "recipe-with-bad-argument-kind",
+  "launch": {
+    "command": "npx"
+  },
+  "arguments": [
+    {
+      "flag": "--verbose",
+      "kind": "switch"
+    }
+  ]
+}

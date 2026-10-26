@@ -1,0 +1,66 @@
+{
+  "formic": 1,
+  "name": "librechat",
+  "title": "LibreChat",
+  "description": "LibreChat as Docker Compose in C:/devprojects/LibreChat (api, mongodb, meilisearch, vectordb, rag_api; admin-panel stays off via its profile). start returns once the containers are up and the UI on http://localhost:3080 follows some seconds later; stop keeps containers and volumes; restart re-reads the bind-mounted librechat.yaml but not .env (that needs docker compose up -d --force-recreate api by hand).",
+  "launch": {
+    "command": "docker",
+    "args": ["compose"],
+    "cwd": "C:/devprojects/LibreChat"
+  },
+  "needs": [
+    {
+      "kind": "service",
+      "tool": "docker-desktop",
+      "action": "start"
+    }
+  ],
+  "health": {
+    "check": ["docker", "info"]
+  },
+  "config": {
+    "files": [
+      "C:/devprojects/LibreChat/docker-compose.yml",
+      "C:/devprojects/LibreChat/docker-compose.override.yml",
+      "C:/devprojects/LibreChat/librechat.yaml",
+      "C:/devprojects/LibreChat/.env"
+    ]
+  },
+  "live": {
+    "probe": {
+      "http": "http://localhost:3080/"
+    }
+  },
+  "actions": [
+    {
+      "name": "start",
+      "args": ["up", "-d"],
+      "whenUp": "skip",
+      "ready": {
+        "within": "120s"
+      },
+      "exit": {
+        "0": "containers started (UI on http://localhost:3080 shortly)",
+        "1": "compose failed — Docker Desktop not running, or a service failed to start"
+      }
+    },
+    {
+      "name": "stop",
+      "args": ["stop"],
+      "confirm": "Stops the containers; volumes are kept.",
+      "exit": {
+        "0": "containers stopped (state preserved)",
+        "1": "compose failed — Docker Desktop not running"
+      }
+    },
+    {
+      "name": "restart",
+      "args": ["restart"],
+      "confirm": "Restarts every LibreChat container.",
+      "exit": {
+        "0": "containers restarted",
+        "1": "compose failed — Docker Desktop not running, or no containers to restart"
+      }
+    }
+  ]
+}

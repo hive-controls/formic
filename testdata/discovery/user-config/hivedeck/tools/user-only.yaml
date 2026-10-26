@@ -1,5 +1,0 @@
-toolspec: 1
-name: user-only
-title: User Tool
-launch:
-  command: user-command

@@ -14,6 +14,12 @@ import (
 // terminateSignal is the first stage of Session.Terminate.
 var terminateSignal os.Signal = syscall.SIGTERM
 
+// CanHostPane reports whether this build can capture a tool on a real pseudo-terminal. Defined
+// per-platform beside the pty implementation itself (see pty_windows.go's counterpart), so a
+// caller never has to sniff runtime.GOOS to ask the same question this file's own build tag
+// already answers.
+func CanHostPane() bool { return true }
+
 func startOnPseudoTerminal(command *exec.Cmd, size Size) (*os.File, error) {
 	terminalFile, err := pty.StartWithSize(command, windowSize(size))
 	if err != nil {

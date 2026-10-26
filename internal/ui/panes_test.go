@@ -11,12 +11,13 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	toolspec "github.com/hive-controls/toolspec"
 
-	"github.com/hive-controls/hivedeck/internal/discovery"
-	"github.com/hive-controls/hivedeck/internal/pane"
-	"github.com/hive-controls/hivedeck/internal/profile"
-	"github.com/hive-controls/hivedeck/internal/runs"
+	"github.com/hive-controls/formic/internal/discovery"
+	"github.com/hive-controls/formic/internal/formats"
+	"github.com/hive-controls/formic/internal/pane"
+	"github.com/hive-controls/formic/internal/profile"
+	"github.com/hive-controls/formic/internal/runs"
+	"github.com/hive-controls/formic/internal/testfixture"
 )
 
 func TestSplitRendersEveryPaneInOneFrame(t *testing.T) {
@@ -109,7 +110,7 @@ func TestPaneKeysMoveFocusAndLeaveTheSplit(t *testing.T) {
 	if model.showPanes {
 		t.Fatal("Esc did not leave the split")
 	}
-	if !strings.Contains(model.View(), "hivedeck") {
+	if !strings.Contains(model.View(), "formic") {
 		t.Fatalf("leaving the split did not return to the tool list:\n%s", model.View())
 	}
 }
@@ -170,9 +171,9 @@ func waitForBytes(t *testing.T, watched *pane.Pane, wanted int64) {
 func TestAnInteractiveToolDegradesOutOfAPaneEvenWhenTheProfileAsksForOne(t *testing.T) {
 	interactive := true
 	store := runs.Store{StateDirectory: t.TempDir()}
-	tool := discovery.Tool{Name: "psql-console", Title: "psql console", Manifest: toolspec.ToolManifest{
-		Launch: toolspec.ToolManifestLaunch{Command: "/bin/true"},
-		Pane:   &toolspec.ToolManifestPane{Interactive: &interactive},
+	tool := discovery.Tool{Name: "psql-console", Title: "psql console", Manifest: formats.ToolManifest{
+		Launch: formats.ToolManifestLaunch{Command: testfixture.Tool(t)},
+		Pane:   &formats.ToolManifestPane{Interactive: &interactive},
 	}}
 	model := launchModel(t, store, tool)
 	model.repositoryProfile.Tools = map[string]profile.Tool{"psql-console": {Mode: profile.ModePane}}

@@ -1,5 +1,0 @@
-toolspec: 1
-name: shared
-title: User Shared Tool
-launch:
-  command: user-command

@@ -1,0 +1,11 @@
+formic: 1
+name: mcp-proxies
+title: MCP proxies
+description: Per-MCP running/stopped view of the data/mcps.json proxy set with an on/off toggle, plus start all / stop all; attaches to whatever is already running (state is a live port probe, not a spawned child).
+launch: { command: node, args: [tools/mcps-tui.mjs], cwd: "{repo}" }
+config:
+  files:
+    - "data/mcps.json"
+    - "data/mcps-secrets.json"
+live: { probe: { http: "http://127.0.0.1:8081/mcp", expect: any } }
+pane: { prefer: window, interactive: true }

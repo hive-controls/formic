@@ -1,0 +1,27 @@
+{
+  "formic": 1,
+  "name": "e2e-doctor",
+  "title": "E2E Doctor",
+  "description": "Replay and repair a captured browser spec.",
+  "launch": {
+    "command": "npx",
+    "args": ["@hive-controls/e2e-doctor", "heal", "{spec}"],
+    "cwd": "{repo}"
+  },
+  "config": {
+    "schema": "./config.schema.json",
+    "files": [".env", "formic.profiles.yaml"]
+  },
+  "status": {
+    "kind": "ndjson",
+    "fd": "stderr",
+    "events": ["started", "progress", "ok", "failed", "needs-human"]
+  },
+  "health": {
+    "check": ["npx", "@hive-controls/e2e-doctor", "--version"]
+  },
+  "pane": {
+    "prefer": "window",
+    "interactive": false
+  }
+}

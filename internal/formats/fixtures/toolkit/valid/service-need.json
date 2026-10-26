@@ -1,0 +1,5 @@
+{
+  "toolkit": 1,
+  "name": "chat-stack",
+  "needs": [{ "kind": "service", "tool": "docker-desktop", "action": "start" }]
+}

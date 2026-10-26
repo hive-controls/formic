@@ -7,9 +7,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/hive-controls/hivedeck/internal/discovery"
-	"github.com/hive-controls/hivedeck/internal/manifest"
-	"github.com/hive-controls/hivedeck/internal/runs"
+	"github.com/hive-controls/formic/internal/discovery"
+	"github.com/hive-controls/formic/internal/manifest"
+	"github.com/hive-controls/formic/internal/runs"
 )
 
 func TestTruncateNeverExceedsTheLimitAndMarksTheLoss(t *testing.T) {
@@ -204,8 +204,8 @@ func manyTools(count int) discovery.Catalog {
 			Description: "A description long enough to need reflowing across several lines rather than " +
 				"being hard-wrapped mid-word by the terminal itself.",
 			Source: discovery.Source{
-				Kind: discovery.SourceLocal,
-				Path: "/home/example/Documents/repositories/example-workspace/.hivedeck/tools/very-long-name.yaml",
+				Kind: discovery.SourceCatalog,
+				Path: "/home/example/Documents/repositories/example-workspace/.formic/tools/very-long-name.yaml",
 			},
 		}
 		if index%5 == 0 {
@@ -213,8 +213,8 @@ func manyTools(count int) discovery.Catalog {
 		}
 		if index%7 == 0 {
 			tool.Shadowed = []discovery.Definition{{Source: discovery.Source{
-				Kind: discovery.SourceUser,
-				Path: "/home/example/.config/hivedeck/tools/very-long-name.yaml",
+				Kind: discovery.SourceCatalog,
+				Path: "/home/example/.config/formic/tools/very-long-name.yaml",
 			}}}
 		}
 		tools = append(tools, tool)

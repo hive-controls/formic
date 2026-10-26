@@ -1,0 +1,7 @@
+formic: 1
+name: lifecycle-beside
+launch:
+  command: tool
+lifecycle: service
+actions:
+  - name: start

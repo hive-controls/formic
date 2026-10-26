@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hive-controls/formic/main/schema/catalog.schema.json",
+  "title": "Catalog",
+  "description": "The user's list of admitted sources, written by `formic add`. Nothing else is scanned.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["catalog", "sources"],
+  "properties": {
+    "$schema": {
+      "description": "Optional reference to this schema, for editor validation. Ignored by the launcher.",
+      "type": "string"
+    },
+    "catalog": {
+      "description": "Catalog schema version. v1 is the only version this schema accepts.",
+      "type": "integer",
+      "const": 1
+    },
+    "sources": {
+      "description": "Catalogued sources, in precedence order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path"],
+        "properties": {
+          "kind": {
+            "description": "The only source kind this schema accepts today is a local directory carrying a toolkit.yaml.",
+            "const": "dir"
+          },
+          "path": {
+            "description": "Absolute path to the catalogued directory.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

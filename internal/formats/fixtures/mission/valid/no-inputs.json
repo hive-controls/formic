@@ -1,0 +1,6 @@
+{
+  "mission": 1,
+  "name": "restart-service",
+  "steps": [{ "tool": "restart-service" }],
+  "evidence": "evidence/"
+}

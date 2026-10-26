@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hive-controls/hivedeck/internal/profile"
+	"github.com/hive-controls/formic/internal/profile"
 )
 
 func TestMonitorReportsOnlyCompleteEventsAndKeepsTheLastArtifact(t *testing.T) {

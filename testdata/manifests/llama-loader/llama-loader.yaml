@@ -1,0 +1,21 @@
+formic: 1
+name: llama-loader
+title: Llama Loader (Electron app)
+description: Launches the Llama Loader desktop app from this checkout (dev Electron build, always the current code) — pick a GGUF, see projected VRAM and t/s, launch llama-server / MLX / Apple FM with the chosen config, run benchmarks, manage the MCP set.
+launch:
+  command: npm
+  args: ["start"]
+  cwd: "{repo}"
+config:
+  files:
+    - "data/presets.json"
+    - "data/gpu-profile.json"
+    - "data/user-roots.json"
+    - "data/mcps.json"
+status:
+  kind: exit-code
+health:
+  check: ["node", "-e", "require('C:/devprojects/llama-loader/node_modules/electron')"]
+pane:
+  prefer: window
+  interactive: false

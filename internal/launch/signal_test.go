@@ -1,12 +1,19 @@
+//go:build !windows
+
+// Every test in this file delivers a signal to the running process via syscall.Kill and spawns
+// real Unix commands ("sleep", "true"), so the whole file is built only where that works.
+// Whether signal forwarding holds on Windows is UNVERIFIED — it has not been exercised — and a
+// test that skipped there would read as a claim it might.
+
 package launch
 
 import (
 	"bytes"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 	"testing"
-	"time"
 )
 
 // TestSignalForwardingCommandForwardsAndWaits exercises the exact mechanism the foreground
@@ -16,22 +23,14 @@ import (
 // Model.Update round trip — the alternative the codex finding calls out as previously leaving
 // "signal handling and actual handoff... uncovered".
 func TestSignalForwardingCommandForwardsAndWaits(t *testing.T) {
-	signals, stop := ArmSignalTrap()
-	defer stop()
-	command := &SignalForwardingCommand{Cmd: exec.Command("sleep", "5"), Signals: signals}
-	results := make(chan error, 1)
-	go func() { results <- command.Run() }()
-	time.Sleep(200 * time.Millisecond)
-	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+	readyPath := filepath.Join(t.TempDir(), "ready")
+	helper := startHelper(t, "forward", "", readyPath)
+	waitForFile(t, readyPath)
+	if err := syscall.Kill(helper.Process.Pid, syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case err := <-results:
-		if code := ExitCode(err); code != 143 {
-			t.Fatalf("ExitCode(err) = %d, want 143 (128+SIGTERM)", code)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("SignalForwardingCommand.Run did not return after SIGTERM — it is not forwarding/waiting")
+	if code := waitForHelperExit(t, helper); code != 143 {
+		t.Fatalf("ExitCode(err) = %d, want 143 (128+SIGTERM)", code)
 	}
 }
 

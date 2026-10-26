@@ -1,5 +1,0 @@
-toolspec: 1
-name: invalid-local
-launch:
-  command: broken
-unknownField: true

@@ -1,0 +1,10 @@
+formic: 1
+name: live-whenup-beside
+launch:
+  command: tool
+live:
+  probe:
+    tcp: 127.0.0.1:8090
+  whenUp: skip
+actions:
+  - name: start

@@ -1,0 +1,13 @@
+{
+  "formic": 1,
+  "name": "sample",
+  "launch": {
+    "command": "sample"
+  },
+  "live": {
+    "probe": {
+      "http": "http://127.0.0.1:8090/health",
+      "tcp": "127.0.0.1:8090"
+    }
+  }
+}

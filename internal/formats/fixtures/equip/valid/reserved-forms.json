@@ -1,0 +1,7 @@
+{
+  "equip": 1,
+  "secrets": {
+    "KEYCHAIN_SECRET": "keychain:KEYCHAIN_SECRET",
+    "FILE_SECRET": "file:./secrets.yaml#file-secret"
+  }
+}

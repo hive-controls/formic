@@ -1,0 +1,5 @@
+{
+  "equip": 1,
+  "secrets": { "NUMVERIFY_API_KEY": "env.NUMVERIFY_API_KEY" },
+  "providers": { "gate.browser": "solari" }
+}

@@ -1,0 +1,8 @@
+{
+  "formic": 1,
+  "name": "bad-args-type",
+  "launch": {
+    "command": "npx",
+    "args": "should-be-an-array"
+  }
+}

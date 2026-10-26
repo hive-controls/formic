@@ -1,0 +1,10 @@
+{
+  "mission": 1,
+  "name": "username-sweep",
+  "inputs": ["username"],
+  "steps": [
+    { "tool": "maigret", "with": { "username": "{username}" } },
+    { "tool": "user-scanner", "with": { "username": "{username}" } }
+  ],
+  "evidence": "evidence/"
+}

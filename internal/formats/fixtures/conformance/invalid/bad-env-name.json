@@ -1,0 +1,12 @@
+{
+  "formic": 1,
+  "name": "recipe-with-bad-env-name",
+  "launch": {
+    "command": "npx"
+  },
+  "env": [
+    {
+      "name": "not-a-valid-name"
+    }
+  ]
+}

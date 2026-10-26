@@ -1,0 +1,12 @@
+{
+  "formic": 1,
+  "name": "probe-values",
+  "launch": { "command": "sample" },
+  "live": {
+    "probe": {
+      "http": "http://127.0.0.1:9000/ready",
+      "expect": 204,
+      "timeout": "5s"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "formic": 1,
+  "name": "recipe-with-option-missing-value",
+  "launch": {
+    "command": "npx"
+  },
+  "env": [
+    {
+      "name": "RECIPE_GATE",
+      "options": [{ "description": "no value here" }]
+    }
+  ]
+}

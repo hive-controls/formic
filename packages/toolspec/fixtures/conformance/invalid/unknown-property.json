@@ -1,8 +1,0 @@
-{
-  "toolspec": 1,
-  "name": "has-extra-field",
-  "launch": {
-    "command": "npx"
-  },
-  "unknownField": true
-}

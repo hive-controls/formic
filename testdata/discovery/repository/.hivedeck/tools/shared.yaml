@@ -1,7 +1,0 @@
-toolspec: 1
-name: shared
-title: Local Shared Tool
-description: The repo-local definition wins.
-launch:
-  command: local-command
-  cwd: "{repo}"

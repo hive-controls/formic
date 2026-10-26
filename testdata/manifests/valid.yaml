@@ -1,4 +1,4 @@
-toolspec: 1
+formic: 1
 name: sample-tool
 title: Sample Tool
 description: Exercises manifest loading.
