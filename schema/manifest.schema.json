@@ -50,7 +50,10 @@
         "cwd": {
           "description": "Working directory the command runs in. May contain a {repo}-style placeholder token, substituted like those in launch.args.",
           "type": "string"
-        }
+        },
+        "darwin": { "$ref": "#/$defs/launchOverride" },
+        "linux": { "$ref": "#/$defs/launchOverride" },
+        "windows": { "$ref": "#/$defs/launchOverride" }
       }
     },
     "config": {
@@ -104,7 +107,10 @@
           "type": "array",
           "items": { "type": "string" },
           "minItems": 1
-        }
+        },
+        "darwin": { "$ref": "#/$defs/healthOverride" },
+        "linux": { "$ref": "#/$defs/healthOverride" },
+        "windows": { "$ref": "#/$defs/healthOverride" }
       }
     },
     "pane": {
@@ -209,6 +215,42 @@
     "live": { "$ref": "#/$defs/live" }
   },
   "$defs": {
+    "launchOverride": {
+      "description": "Replaces launch.command, launch.args or launch.cwd on one operating system (darwin, linux or windows, matched against the launcher's host). Each key it sets replaces the base key; a key it omits keeps the base value. Tokens are substituted as in the base launch.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "command": {
+          "description": "The executable to run on this operating system.",
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "description": "Argv passed to command on this operating system.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "cwd": {
+          "description": "Working directory on this operating system.",
+          "type": "string"
+        }
+      }
+    },
+    "healthOverride": {
+      "description": "Replaces health.check on one operating system (darwin, linux or windows, matched against the launcher's host).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check"],
+      "properties": {
+        "check": {
+          "description": "Argv of the health command on this operating system.",
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        }
+      }
+    },
     "option": {
       "description": "One enumerated value an env entry or argument accepts.",
       "type": "object",

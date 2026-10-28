@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/hive-controls/formic/internal/formats"
@@ -63,6 +64,7 @@ func LoadFile(path, repositoryRoot string) Loaded {
 		loaded.Problem = fmt.Errorf("decode manifest: %w", err)
 		return loaded
 	}
+	applyPlatformOverride(&loaded.Manifest, runtime.GOOS)
 	if err := checkDeclaredArguments(loaded.Manifest.Arguments); err != nil {
 		loaded.Problem = err
 		return loaded

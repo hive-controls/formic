@@ -252,6 +252,34 @@ func (j *Duration) UnmarshalJSON(value []byte) error {
 	return nil
 }
 
+// Replaces health.check on one operating system (darwin, linux or windows, matched
+// against the launcher's host).
+type HealthOverride struct {
+	// Argv of the health command on this operating system.
+	Check []string `json:"check" yaml:"check" mapstructure:"check"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *HealthOverride) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["check"]; raw != nil && !ok {
+		return fmt.Errorf("field check in HealthOverride: required")
+	}
+	type Plain HealthOverride
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	if plain.Check != nil && len(plain.Check) < 1 {
+		return fmt.Errorf("field %s length: must be >= %d", "check", 1)
+	}
+	*j = HealthOverride(plain)
+	return nil
+}
+
 // One named per-run input a tool accepts.
 type Input struct {
 	// The input's value kind. An open string in this version.
@@ -302,6 +330,35 @@ func (j *Input) UnmarshalJSON(value []byte) error {
 		plain.Sensitive = false
 	}
 	*j = Input(plain)
+	return nil
+}
+
+// Replaces launch.command, launch.args or launch.cwd on one operating system
+// (darwin, linux or windows, matched against the launcher's host). Each key it
+// sets replaces the base key; a key it omits keeps the base value. Tokens are
+// substituted as in the base launch.
+type LaunchOverride struct {
+	// Argv passed to command on this operating system.
+	Args []string `json:"args,omitempty,omitzero" yaml:"args,omitempty" mapstructure:"args,omitempty"`
+
+	// The executable to run on this operating system.
+	Command *string `json:"command,omitempty,omitzero" yaml:"command,omitempty" mapstructure:"command,omitempty"`
+
+	// Working directory on this operating system.
+	Cwd *string `json:"cwd,omitempty,omitzero" yaml:"cwd,omitempty" mapstructure:"cwd,omitempty"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *LaunchOverride) UnmarshalJSON(value []byte) error {
+	type Plain LaunchOverride
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	if plain.Command != nil && utf8.RuneCountInString(string(*plain.Command)) < 1 {
+		return fmt.Errorf("field %s length: must be >= %d", "command", 1)
+	}
+	*j = LaunchOverride(plain)
 	return nil
 }
 
@@ -587,6 +644,15 @@ type ToolManifestExit map[string]interface{}
 type ToolManifestHealth struct {
 	// Argv of a command that exits 0 when the tool is healthy.
 	Check []string `json:"check" yaml:"check" mapstructure:"check"`
+
+	// Darwin corresponds to the JSON schema field "darwin".
+	Darwin *HealthOverride `json:"darwin,omitempty,omitzero" yaml:"darwin,omitempty" mapstructure:"darwin,omitempty"`
+
+	// Linux corresponds to the JSON schema field "linux".
+	Linux *HealthOverride `json:"linux,omitempty,omitzero" yaml:"linux,omitempty" mapstructure:"linux,omitempty"`
+
+	// Windows corresponds to the JSON schema field "windows".
+	Windows *HealthOverride `json:"windows,omitempty,omitzero" yaml:"windows,omitempty" mapstructure:"windows,omitempty"`
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
@@ -624,6 +690,15 @@ type ToolManifestLaunch struct {
 	// Working directory the command runs in. May contain a {repo}-style placeholder
 	// token, substituted like those in launch.args.
 	Cwd *string `json:"cwd,omitempty,omitzero" yaml:"cwd,omitempty" mapstructure:"cwd,omitempty"`
+
+	// Darwin corresponds to the JSON schema field "darwin".
+	Darwin *LaunchOverride `json:"darwin,omitempty,omitzero" yaml:"darwin,omitempty" mapstructure:"darwin,omitempty"`
+
+	// Linux corresponds to the JSON schema field "linux".
+	Linux *LaunchOverride `json:"linux,omitempty,omitzero" yaml:"linux,omitempty" mapstructure:"linux,omitempty"`
+
+	// Windows corresponds to the JSON schema field "windows".
+	Windows *LaunchOverride `json:"windows,omitempty,omitzero" yaml:"windows,omitempty" mapstructure:"windows,omitempty"`
 }
 
 // UnmarshalJSON implements json.Unmarshaler.

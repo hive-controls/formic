@@ -387,6 +387,23 @@ status:
   kind: exit-code
 ```
 
+A tool whose command differs by operating system — a Python virtualenv's `bin/` versus
+`Scripts\`, for example — declares a `darwin`, `linux`, or `windows` block inside `launch`
+or `health`. The block for the host formic runs on replaces the base keys it sets
+(`command`, `args`, `cwd` in `launch`; `check` in `health`); keys it omits keep their base
+values, and a host with no block uses the base:
+
+```yaml
+launch:
+  command: "{repo}/.venv/bin/mytool"
+  windows:
+    command: "{repo}/.venv/Scripts/mytool.exe"
+health:
+  check: [".venv/bin/mytool", "doctor"]
+  windows:
+    check: [".venv/Scripts/mytool.exe", "doctor"]
+```
+
 Unknown substitution tokens, unsupported formic versions, and inconsistent argument
 declarations (a `choice` with no options, a `default` outside its options, or the same `flag`
 declared twice) are reported by `formic doctor`; invalid definitions are never listed — they are reported by `doctor`.
